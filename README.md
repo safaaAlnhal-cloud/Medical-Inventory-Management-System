@@ -4,8 +4,8 @@
 
 | المجلد | الجزء | التقنية |
 | --- | --- | --- |
-| [`Meditarck-Front`](Meditarck-Front) | Frontend | React + Vite |
-| [`Meditarck-Back`](Meditarck-Back) | Backend | Laravel (PHP) |
+| [`Meditrack-Front`](Meditrack-Front) | Frontend | React + Vite |
+| [`Meditrack-Back`](Meditrack-Back) | Backend | Laravel (PHP) |
 
 ## المتطلبات
 
@@ -24,7 +24,7 @@ cd "Medical Inventory Management System"
 ### Backend
 
 ```sh
-cd Meditarck-Back
+cd Meditrack-Back
 composer install
 php -r "copy('.env.example', '.env');"
 php artisan key:generate
@@ -40,7 +40,7 @@ php artisan serve
 من نافذة Terminal ثانية، ومن المجلد الرئيسي للمشروع:
 
 ```sh
-cd Meditarck-Front
+cd Meditrack-Front
 npm install
 npm run dev
 ```
