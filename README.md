@@ -17,7 +17,7 @@
 ## التشغيل لأول مرة
 
 ```sh
-git clone <REPO_URL> "Medical Inventory Management System"
+git clone https://github.com/safaaAlnhal-cloud/Medical-Inventory-Management-System.git "Medical Inventory Management System"
 cd "Medical Inventory Management System"
 ```
 
