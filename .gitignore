@@ -1,0 +1,12 @@
+# Environment files (each project keeps its own .env.example)
+.env
+.env.*
+!.env.example
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Editors
+.idea/
+.vscode/
