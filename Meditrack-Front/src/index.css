@@ -1,111 +1,124 @@
-:root {
-  --text: #6b6375;
-  --text-h: #08060d;
-  --bg: #fff;
-  --border: #e5e4e7;
-  --code-bg: #f4f3ec;
-  --accent: #aa3bff;
-  --accent-bg: rgba(170, 59, 255, 0.1);
-  --accent-border: rgba(170, 59, 255, 0.5);
-  --social-bg: rgba(244, 243, 236, 0.5);
-  --shadow:
-    rgba(0, 0, 0, 0.1) 0 10px 15px -3px, rgba(0, 0, 0, 0.05) 0 4px 6px -2px;
+@import "tailwindcss";
+@import "./styles/landing.css";
+@import url('https://fonts.googleapis.com/css2?family=Noto+Serif:wght@700;800&family=Nunito:wght@400;600;700;800&display=swap');
 
-  --sans: system-ui, 'Segoe UI', Roboto, sans-serif;
-  --heading: system-ui, 'Segoe UI', Roboto, sans-serif;
-  --mono: ui-monospace, Consolas, monospace;
+/* Dashboard colour system: a forest-green, sage and mint palette built around the brand green.
+   Used by the Admin and Storekeeper dashboards only (the pages and src/components/dashboard);
+   the sidebar, navbar and other pages do not read these.
+   Each --color-* below is a CSS custom property and also a Tailwind colour, so
+   --color-incoming is available as bg-incoming, text-incoming, stroke-incoming, ... */
+@theme {
+  /* Palette */
+  --color-brand: #16423c;
+  --color-forest: #2d6a5f;
+  --color-sage: #879b94;
+  --color-mint: #a7c4b5;
+  --color-mint-soft: #e6efe9;
+  --color-sage-soft: #edf2ef;
+  --color-gold: #d5ad65;
 
-  font: 18px/145% var(--sans);
-  letter-spacing: 0.18px;
-  color-scheme: light dark;
-  color: var(--text);
-  background: var(--bg);
-  font-synthesis: none;
-  text-rendering: optimizeLegibility;
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
+  /* Surfaces and text */
+  --color-dashboard-bg: #f5f7f4;
+  --color-card-border: #e1e8e3;
+  --color-ink: #16423c;
+  --color-muted: #66766f;
+  --color-chart-grid: #e7ede9;
+  --color-donut-track: #edf2ef;
 
-  @media (max-width: 1024px) {
-    font-size: 16px;
-  }
+  /* Incoming and outgoing stock */
+  --color-incoming: #2d6a5f;
+  --color-incoming-text: #24624f;
+  --color-incoming-soft: #e6efe9;
+  --color-outgoing: #a7c4b5;
+  --color-outgoing-text: #365d55;
+  --color-outgoing-soft: #e4eae7;
+
+  /* Recent Transactions badges and quantities only: a clear green for stock received and a
+     cool slate for stock issued, so the two read apart at a glance. */
+  --color-txn-in-text: #1e6b4f;
+  --color-txn-in-soft: #e2f0e8;
+  --color-txn-in-border: #b9d8c6;
+  --color-txn-out-text: #435a6b;
+  --color-txn-out-soft: #e8edf1;
+  --color-txn-out-border: #c9d4dc;
+
+  /* Stock status. *-accent is the card accent, *-text the readable text shade. */
+  --color-available: #2d6a5f;
+  --color-low-stock: #d5ad65;
+  --color-low-stock-accent: #b7791f;
+  --color-low-stock-text: #8f5e14;
+  --color-low-stock-soft: #fff3d6;
+  --color-out-of-stock: #c65a54;
+  --color-out-of-stock-text: #a8443f;
+  --color-danger-soft: #f9e9e7;
+
+  /* Expired stock, and its disposal */
+  --color-expired: #92506f;
+  --color-expired-text: #7e3f5e;
+  --color-expired-soft: #f5e8f0;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --text: #9ca3af;
-    --text-h: #f3f4f6;
-    --bg: #16171d;
-    --border: #2e303a;
-    --code-bg: #1f2028;
-    --accent: #c084fc;
-    --accent-bg: rgba(192, 132, 252, 0.15);
-    --accent-border: rgba(192, 132, 252, 0.5);
-    --social-bg: rgba(47, 48, 58, 0.5);
-    --shadow:
-      rgba(0, 0, 0, 0.4) 0 10px 15px -3px, rgba(0, 0, 0, 0.25) 0 4px 6px -2px;
-  }
-
-  #social .button-icon {
-    filter: invert(1) brightness(2);
-  }
+:root {
+  --dashboard-bg: var(--color-dashboard-bg);
+  --card-border: var(--color-card-border);
+  --text-primary: var(--color-ink);
+  --text-secondary: var(--color-muted);
 }
 
 body {
-  margin: 0;
+  background: radial-gradient(circle at 20% 25%, #eef8f4 0%, #e5f2ed 100%);
+  min-height: 100vh;
+  color: #1e293b;
+  font-family: 'Nunito', sans-serif;
 }
 
-#root {
-  width: 1126px;
-  max-width: 100%;
-  margin: 0 auto;
-  text-align: center;
-  border-inline: 1px solid var(--border);
-  min-height: 100svh;
-  display: flex;
-  flex-direction: column;
-  box-sizing: border-box;
+.font-noto-serif {
+  font-family: 'Noto Serif', serif;
 }
 
-h1,
-h2 {
-  font-family: var(--heading);
-  font-weight: 500;
-  color: var(--text-h);
+.font-nunito {
+  font-family: 'Nunito', sans-serif;
 }
 
-h1 {
-  font-size: 56px;
-  letter-spacing: -1.68px;
-  margin: 32px 0;
-  @media (max-width: 1024px) {
-    font-size: 36px;
-    margin: 20px 0;
+/* Card hover: one shared effect for every card in the app.
+   .card-hover  a slight lift plus a soft shadow (app cards)
+   .card-lift   the lift only, for cards that already define their own hover shadow (landing page)
+   Only transform and shadow change, so nothing around the card moves. It is limited to devices
+   with a real pointer, so a tap on a touch screen never leaves a card stuck in its hover state. */
+.card-hover,
+.card-lift {
+  transition: transform 250ms ease, box-shadow 250ms ease, border-color 250ms ease, background-color 250ms ease;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .card-hover:hover,
+  .card-lift:hover {
+    transform: translateY(-2px);
+  }
+
+  .card-hover:hover {
+    box-shadow: 0 10px 22px -14px rgb(15 23 42 / 0.22), 0 2px 6px -3px rgb(15 23 42 / 0.08);
   }
 }
-h2 {
-  font-size: 24px;
-  line-height: 118%;
-  letter-spacing: -0.24px;
-  margin: 0 0 8px;
-  @media (max-width: 1024px) {
-    font-size: 20px;
+
+/* Users who ask for less motion keep the soft shadow but get no movement and no animation. */
+@media (prefers-reduced-motion: reduce) {
+  .card-hover,
+  .card-lift {
+    transition: none;
+  }
+
+  .card-hover:hover,
+  .card-lift:hover {
+    transform: none;
   }
 }
-p {
-  margin: 0;
+
+/* Horizontally scrollable tab strips without a visible scrollbar. */
+.scrollbar-none {
+  scrollbar-width: none;
 }
 
-code,
-.counter {
-  font-family: var(--mono);
-  display: inline-flex;
-  border-radius: 4px;
-  color: var(--text-h);
-}
-
-code {
-  font-size: 15px;
-  line-height: 135%;
-  padding: 4px 8px;
-  background: var(--code-bg);
+.scrollbar-none::-webkit-scrollbar {
+  display: none;
 }
