@@ -17,6 +17,11 @@ return new class extends Migration
             $table->string('email')->unique();
             $table->timestamp('email_verified_at')->nullable();
             $table->string('password');
+            // App\Enums\UserRole / UserStatus. An inactive user cannot sign in; users are never deleted.
+            $table->string('role', 20)->default('storekeeper');
+            $table->string('status', 20)->default('active');
+            $table->string('phone', 30)->nullable();
+            $table->timestamp('last_active_at')->nullable();
             $table->rememberToken();
             $table->timestamps();
         });

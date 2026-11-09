@@ -2,7 +2,6 @@
 
 namespace Database\Seeders;
 
-use App\Models\User;
 use Illuminate\Database\Console\Seeds\WithoutModelEvents;
 use Illuminate\Database\Seeder;
 
@@ -11,15 +10,18 @@ class DatabaseSeeder extends Seeder
     use WithoutModelEvents;
 
     /**
-     * Seed the application's database.
+     * php artisan migrate:fresh --seed
+     *
+     * AdminSeeder creates the one admin account; the system cannot work without it.
+     * DemoDataSeeder adds the frontend's mock data (storekeepers, items, batches,
+     * transactions) for development and the demo. Leave it out on a real installation:
+     *   php artisan db:seed --class=AdminSeeder
      */
     public function run(): void
     {
-        // User::factory(10)->create();
-
-        User::factory()->create([
-            'name' => 'Test User',
-            'email' => 'test@example.com',
+        $this->call([
+            AdminSeeder::class,
+            DemoDataSeeder::class,
         ]);
     }
 }
