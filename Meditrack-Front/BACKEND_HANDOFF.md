@@ -27,6 +27,10 @@ Every statement belongs to one of four kinds, and the text says which:
 | **Mock only** | Simulated in the browser so the UI can be developed. It is not real and gives no security |
 | **Backend must** | The frontend relies on it, but only a server can really do it |
 | **Open decision** | Not settled. Section 8 lists them all; the mock uses the safest non-destructive behaviour |
+| **Planned** | Decided, and the backend follows it, but the frontend change it needs has not been made yet |
+
+The backend is a Laravel 13 application in `Meditrack-Back` (MySQL, Laravel Sanctum tokens).
+Decisions taken for it are recorded in section 8 and in the sections they affect.
 
 ### Service files
 
@@ -55,7 +59,7 @@ Every statement belongs to one of four kinds, and the text says which:
 | `VITE_USE_MOCK_DATA` | `true` | Mock data, also in a production build (use this for a demo build) |
 | | `false` | Real API |
 | | not set | Mock data under `npm run dev`; **real API in a production build** |
-| `VITE_API_BASE_URL` | URL | Base URL of the API. Default `http://localhost:5000/api` |
+| `VITE_API_BASE_URL` | URL | Base URL of the API. Default `http://localhost:5000/api`; the Laravel backend serves it at `http://localhost:8000/api` (`php artisan serve`), so set this value in `.env` |
 
 A production build therefore never falls back to fake data by accident: mock mode has to be asked
 for. To go live:
@@ -75,14 +79,14 @@ mode (they are just never called). Excluding them needs the services to load the
 
 | Topic | Convention |
 |---|---|
-| Base URL | `VITE_API_BASE_URL`, e.g. `http://localhost:5000/api` |
+| Base URL | `VITE_API_BASE_URL`, e.g. `http://localhost:8000/api` |
 | Format | JSON request and response bodies |
 | Response body | The resource itself, with no envelope. If you prefer `{ "data": ... }`, tell the frontend team: it is a one-line change in `unwrap` in `src/services/apiAxios.js` |
 | IDs | Any stable unique value (number or string). Entities reference each other by id only |
 | Dates | ISO 8601. Date-only fields are `YYYY-MM-DD`; timestamps are full ISO strings (`2026-10-08T10:15:00.000Z`) |
-| Numbers | Quantities, prices and totals are JSON numbers, never formatted strings |
-| Money | The UI shows 2 decimals with one currency symbol, defined once in `src/utils/formatters.js` (`CURRENCY_SYMBOL`, currently `$`). Totals are rounded to 2 decimals; unit costs keep up to 4 (see "Average Cost and Unit Cost"). The currency itself is an open decision |
-| Time zone | Date-only values are calendar dates with no time zone. "Today" (expiry, report periods) is an open decision: the mock uses the browser's local date |
+| Numbers | Quantities, prices and totals are JSON numbers, never formatted strings. **Quantities (and `minQty`) are whole numbers** |
+| Money | US dollars (`$`). The UI shows 2 decimals with one currency symbol, defined once in `src/utils/formatters.js` (`CURRENCY_SYMBOL`). Unit costs are stored and returned with 4 decimals; totals are rounded to 2 (see "Average Cost and Unit Cost") |
+| Time zone | Date-only values are calendar dates with no time zone. "Today" (expiry, report periods, the "no future date" rule) is the date in **`Asia/Gaza`**, decided by the server. The mock uses the browser's local date |
 | Roles | `"admin"` or `"storekeeper"` (the frontend lowercases whatever it receives; any other value is rejected) |
 | User status | `"active"` or `"inactive"` |
 | Units | `"box"`, `"strip"`, `"bottle"`, `"vial"`, `"ampoule"`, `"piece"`, `"pack"` |
@@ -110,8 +114,10 @@ The backend must **not** return presentation data: no formatted strings (`"$1,20
   "Access" column below lists who may call each endpoint.
 - **Backend must** take the acting user from the token. The frontend never sends a user id to
   say who is acting (`recordedBy`, `cancelledBy` and the profile endpoints all rely on the token).
-- **Open decisions:** token lifetime and refresh, and where the token is stored (it is in
-  `localStorage` / `sessionStorage` today).
+- **Decided:** the token is a Laravel Sanctum personal access token, an opaque string the frontend
+  never reads. It expires **24 hours** after sign-in, or **30 days** when "Remember me" is checked
+  (`remember` in the login request, section 4.1). An expired token gets `401`. There is no refresh:
+  the user signs in again. The token stays in `localStorage` / `sessionStorage` as today.
 
 Route and role structure (**implemented**, `src/routes`):
 
@@ -121,9 +127,11 @@ Route and role structure (**implemented**, `src/routes`):
 | `/login` | Public (a signed-in user is sent to their dashboard) | Login |
 | `/admin/dashboard`, `/admin/inventory`, `/admin/transactions`, `/admin/users`, `/admin/reports`, `/admin/notifications`, `/admin/settings` | Admin | |
 | `/storekeeper/dashboard`, `/storekeeper/inventory`, `/storekeeper/transactions`, `/storekeeper/notifications`, `/storekeeper/profile` | Storekeeper | |
+| `/storekeeper/reports` | Storekeeper | **Planned:** the same Reports page, with all four reports, linked from the storekeeper sidebar |
 
 A signed-out user is sent to `/login`; a user opening the other role's path is sent to their own
-dashboard. Inventory, Transactions and Notifications are the same pages for both roles.
+dashboard. Inventory, Transactions and Notifications are the same pages for both roles, and so
+will Reports be.
 
 ### Error format
 
@@ -241,6 +249,9 @@ Passwords are never returned by any endpoint.
     so receiving a new batch at a different price does not change past outgoing transactions.
 - `status` is `"active"` or `"cancelled"`. `cancelledAt` (timestamp) and `cancelledBy` (user id)
   are `null` until the transaction is cancelled. See "Cancelled transactions" below.
+- `revisionsCount` (**planned** in the frontend) is the number of times the transaction has been
+  edited, `0` if never. The Transactions page shows a History button only when it is above 0.
+  See "Edit history" below.
 
 ### Notification
 ```json
@@ -291,7 +302,7 @@ Worked example:
   transaction) is kept to 4 decimals and only shortened to 2 for display. Totals (transaction
   value, stock value, report totals) are rounded to 2 decimals. Rounding the Average Cost to 2
   decimals before multiplying loses cents: 3 at $10 + 4 at $11 is $74.00, but 7 × $10.57 is $73.99.
-  The exact precision and type the database uses is an **open decision**; the rule to keep is
+  **Decided:** the database stores unit costs as `DECIMAL(12,4)`; the rule to keep is
   "round the total, not the unit cost".
 - **Transaction value** is always `quantity × unitCost` using the `unitCost` stored on that
   transaction, for both types. It is calculated in one place
@@ -354,8 +365,7 @@ display text only. The data model, service functions and endpoints keep the word
 - The Inventory page has an **Active / Deactivated** switch. The Deactivated view lists archived items
   (`GET /inventory/archived`) with a Reactivate button, and has its own search.
 
-**Open decision:** who may archive and restore. Today any signed-in user may, as with the other
-inventory actions.
+**Decided:** any signed-in user (admin or storekeeper) may create, edit, archive and restore items.
 
 Until the backend exists this lives in `archiveInventoryItemApi` / `restoreInventoryItemApi` in
 `src/services/inventoryApi.js` and `selectInventory` / `selectArchivedInventory` in
@@ -413,11 +423,11 @@ Editable fields:
 |---|---|---|---|
 | `type` | yes | yes | A transaction can be changed from incoming to outgoing and back |
 | `itemId` | yes | yes | Must be an active (not archived) item. A transaction of an archived item cannot be edited at all (`409`) |
-| `quantity` | yes | yes | Greater than 0 |
-| `date` | yes | yes | A real date, `YYYY-MM-DD` |
+| `quantity` | yes | yes | A whole number greater than 0 |
+| `date` | yes | yes | A real date, `YYYY-MM-DD`, not in the future |
 | `batchNumber` | yes | no | Renames the batch this transaction received. Unique per item among active batches |
 | `unitCost` | yes | no | Zero or more. Also stored on the batch |
-| `expiryDate` | yes | no | A real date or `null`. Also stored on the batch |
+| `expiryDate` | yes | no | A real date or `null`, not before `date`. Also stored on the batch |
 | `supplier` | yes | no | Required. Also stored on the batch |
 | `batchId` | no | yes | Which batch the stock is issued from |
 | `recipient` | no | yes | Required |
@@ -449,6 +459,8 @@ Rules that reject an edit (the response body carries a message the UI shows as i
 |---|---|
 | The transaction belongs to an archived item | `409` |
 | Unknown type, unknown or archived item, missing or invalid quantity / date / unit cost / expiry date / batch number / supplier / recipient | `422` |
+| `date` is in the future | `422` |
+| Incoming: `expiryDate` is before `date` (the batch was already expired when received). Checked only when `date` or `expiryDate` changes, or when the transaction used to be outgoing, so an old receipt whose batch has expired since can still be corrected | `422` |
 | Incoming: the item already has an active batch with that number | `409` |
 | Incoming whose batch has active outgoing transactions: item changed, quantity below what was issued, or changed to outgoing | `409` |
 | Incoming: `date` later than the first date stock was issued from its batch | `422` |
@@ -474,6 +486,32 @@ Until the backend exists, the frontend simulates all of this in `updateMock` in
 (works on a copy and only keeps it if nothing failed), with `isStockConsistent` in
 `src/services/mock/mockSelectors.js` as the final check.
 
+### Edit history
+
+**Decided** (backend), **planned** (frontend). Every successful edit is recorded, so an edited
+transaction never loses what it said before. The record is saved **in the same database
+transaction as the edit**: either both are saved or neither is.
+
+```json
+{ "id": 7, "transactionId": 18, "editedBy": 1, "editedAt": "2026-10-04T08:15:00.000Z",
+  "oldValues": { "quantity": 100, "unitCost": 5 },
+  "newValues": { "quantity": 80, "unitCost": 4.5 } }
+```
+
+- `oldValues` / `newValues` hold **only the fields that changed**, with the request field names
+  (`type`, `itemId`, `quantity`, `date`, `batchNumber`, `unitCost`, `expiryDate`, `supplier`,
+  `batchId`, `recipient`) and raw values (ids, ISO dates, numbers). The frontend turns ids into
+  names with the lookup endpoints; items, batches and users are never deleted, so every id
+  resolves.
+- A change the server makes as a result of the edit is recorded too: the new `unitCost` snapshot
+  of an outgoing transaction whose item changed, or that used to be incoming.
+- An edit that changes nothing creates no record.
+- Cancelling is not an edit: it is recorded by `cancelledAt` / `cancelledBy` on the transaction.
+- `GET /transactions/:id/revisions` (section 4.5) returns the records, newest first.
+- **Planned (frontend):** a History button beside the row's actions, shown only when
+  `revisionsCount > 0`, opens a modal listing every edit with who, when, and old → new values.
+  The mock records edits the same way so the button works in mock mode too.
+
 ### Stock and expiry rules
 
 These rules live in `src/utils/stock.js` and must match on the backend, because it computes the
@@ -487,6 +525,8 @@ dashboard counts, alerts and reports:
 | `expired` | batch `expiryDate` is before today |
 | `expiring_soon` | batch `expiryDate` is today or within the next 30 days (inclusive). Never used for a batch that is already expired |
 
+- A batch whose `expiryDate` is `null` (supplies that do not expire) is never `expired` or
+  `expiring_soon` and raises no expiry alert.
 - Only batches with stock count: a used-up batch never makes an item "expiring".
 - **Alerts and never-stocked items.** A stock alert (notification, critical-inventory row) is
   raised for an item that is `low_stock` or `out_of_stock` **and has at least one active incoming
@@ -546,7 +586,7 @@ expired batch.
   it (`PATCH /transactions/:id/cancel`) returns the quantity to the batch as expired stock.
 - The original incoming transaction and the batch record are never changed by a disposal.
 - An item cannot be deactivated while it has expired stock awaiting disposal (`409`).
-- **Access:** any signed-in user, like the other transaction endpoints (open decision 2).
+- **Access:** any signed-in user, like the other transaction endpoints (decision 5).
 
 **Valuation.** The costing model is unchanged: one moving Average Cost per item.
 
@@ -562,7 +602,7 @@ expired batch.
   Total $190.00 = available $126.67 + expired $63.33. **The expired amount is 10 × $6.33, not the
   batch's own 10 × $5 = $50**, because the application values stock at the item's Average Cost,
   not per batch. Valuing each batch at its own price would be a different costing model
-  (**open decision 16**).
+  (decision 16 keeps the Average Cost model).
 - **Not implemented:** an accounting write-off or loss entry. The disposal is recorded with its
   quantity and value; what the accounts do with it is outside this application.
 
@@ -580,11 +620,15 @@ with a back-dated transaction.
 | GET | `/auth/me` | Any signed-in user | The user the token belongs to: `{ "id", "name", "email", "role" }`. `401` if the token is no longer valid |
 | POST | `/auth/logout` | Any signed-in user | No body. Lets the server revoke the token. The frontend ignores the result |
 
-`POST /auth/login` request: `{ "email": "<email>", "password": "<password>" }`
+`POST /auth/login` request: `{ "email": "<email>", "password": "<password>", "remember": false }`
+
+`remember` (**planned** in the frontend: today it sends only `email` and `password`) is the
+"Remember me" checkbox. It sets the token lifetime: 30 days when `true`, 24 hours when `false`
+or missing.
 
 Response `200`:
 ```json
-{ "token": "<jwt>", "user": { "id": 1, "name": "Sara Ahmed", "email": "sara@medcenter.ps", "role": "admin" } }
+{ "token": "<sanctum token>", "user": { "id": 1, "name": "Sara Ahmed", "email": "sara@medcenter.ps", "role": "admin" } }
 ```
 Errors: `401` wrong email or password; `403` account is inactive.
 Inactive users must not be able to log in.
@@ -628,9 +672,11 @@ Validation (**backend must**; the mock applies the same rules):
 | `status` is `active` or `inactive` | `422` | `status` |
 | An admin cannot deactivate the account they are signed in with | `409` | `status` |
 
-**Open decisions:** the UI only creates storekeepers and never changes a role or deletes a user;
-whether more admins can be created, and whether the last active admin must be protected in other
-ways, is not settled. `lastActiveAt` is updated by the mock at login only.
+**Decided:** there is exactly one admin, created by the database seeder. `POST /users` only creates
+storekeepers (any other `role` is rejected with `422`), roles never change, and users are never
+deleted: an account that should no longer be used is set to `inactive`. Because the one admin
+cannot deactivate their own account, the system always keeps an active admin.
+`lastActiveAt` is updated at login (open decision 15).
 
 ### 4.3 Categories
 
@@ -668,7 +714,7 @@ A new item has `quantity` 0 until an incoming transaction is recorded.
 | `name` is not used by another **active** item (case-insensitive) | `409` | `name` |
 | `categoryId` is an existing category | `422` | `categoryId` |
 | `unit` is one of the units in section 2 | `422` | `unit` |
-| `minQty` is a number, zero or more | `422` | `minQty` |
+| `minQty` is a whole number, zero or more | `422` | `minQty` |
 
 ### 4.5 Transactions
 
@@ -680,6 +726,7 @@ A new item has `quantity` 0 until an incoming transaction is recorded.
 | POST | `/transactions/outgoing` | Any signed-in user |
 | PUT | `/transactions/:id` | Any signed-in user |
 | GET | `/transactions/:id/batch-options?itemId=` | Any signed-in user |
+| GET | `/transactions/:id/revisions` | Any signed-in user |
 | POST | `/transactions/disposal` | Any signed-in user |
 | PATCH | `/transactions/:id/cancel` | Any signed-in user |
 
@@ -724,21 +771,23 @@ and no stock change behind):
 | Rule | Status | Field |
 |---|---|---|
 | `itemId` is an existing, active (not archived) item | `422` | `itemId` |
-| `quantity` is a number greater than 0 | `422` | `quantity` |
+| `quantity` is a whole number greater than 0 | `422` | `quantity` |
 | `date` is present and a real `YYYY-MM-DD` date | `422` | `date` |
+| `date` is not in the future (also for disposals) | `422` | `date` |
 | Incoming: `unitCost` is a number, zero or more (missing is rejected, not read as 0) | `422` | `unitCost` |
 | Incoming: `batchNumber` is required | `422` | `batchNumber` |
 | Incoming: the item has no active batch with that number | `409` | `batchNumber` |
 | Incoming: `expiryDate` is `null` or a real date | `422` | `expiryDate` |
+| Incoming: `expiryDate` is not before `date`: stock that was already expired when it arrived cannot be received. A back-dated receipt of a batch that has expired since is accepted and counts as expired stock at once | `422` | `expiryDate` |
 | Incoming: `supplier` is required | `422` | `supplier` |
 | Outgoing: `batchId` is a batch of that item with stock | `422` | `batchId` |
 | Outgoing: `quantity` is not more than the batch holds | `422` | `quantity` |
 | Outgoing: `date` is not before the date the batch was received | `422` | `date` |
 | Outgoing: `recipient` is required | `422` | `recipient` |
 
-**Open decisions** (the mock does not restrict these): whether a quantity must be a whole number
-(the forms only offer whole numbers, the mock accepts any number above 0); whether a transaction
-date may be in the future; whether a batch that is already expired may be received.
+**Decided:** quantities are whole numbers, a transaction cannot be dated in the future, and a
+batch that was already expired on its receipt date cannot be received. The mock does not
+enforce these three rules (it accepts any number above 0 and any date); the backend does.
 
 `POST /transactions/disposal` request (expired stock only; rules in "Batch expiry and disposal"):
 ```json
@@ -768,14 +817,19 @@ from as an outgoing transaction of `itemId`:
 available again, the batch it received itself is left out, and so are batches received after it
 was recorded. The edit form uses it for the batch list, so the UI never calculates stock.
 
+`GET /transactions/:id/revisions` returns the transaction's edit history, newest first (the
+record shape and rules are in "Edit history" in section 3). `[]` for a transaction that was never
+edited; `404` if the transaction does not exist.
+
 `PATCH /transactions/:id/cancel` has no request body. Response `200` with the `Transaction`
 (`status: "cancelled"`, `cancelledAt`, and `cancelledBy` taken from the token). `404` if not
 found; `409` if it is already cancelled, if it belongs to an archived item, or if it is an
 incoming transaction whose batch has active outgoing transactions. All rules are in "Cancelled
 transactions" in section 3.
 
-**Open decision:** any signed-in user may edit or cancel any transaction, including one recorded
-by someone else. Confirm this before the backend encodes it.
+**Decided:** any signed-in user (admin or storekeeper) may record, edit and cancel any
+transaction, including one recorded by someone else, and record disposals. Who recorded,
+edited and cancelled it is always kept (`recordedBy`, the edit history, `cancelledBy`).
 
 ### 4.6 Notifications
 
@@ -856,7 +910,11 @@ Which alerts exist (**backend must** generate these; the mock derives them on ev
 
 | Method | Endpoint | Access |
 |---|---|---|
-| GET | `/reports/:type?from=&to=&categoryId=&itemId=&search=&page=&pageSize=` | Admin |
+| GET | `/reports/:type?from=&to=&categoryId=&itemId=&search=&page=&pageSize=` | Any signed-in user |
+
+**Decided:** all four reports, including `inventory_value`, are open to both roles (the frontend
+page for storekeepers is **planned**, see section 2). Money values are not hidden from
+storekeepers: they already see unit costs on the Inventory and Transactions pages.
 
 `:type` is `summary`, `movement_history`, `critical_items` or `inventory_value`. An unknown type is `404`.
 The frontend requests `pageSize=5` for the table and `pageSize=1000` when exporting.
@@ -970,10 +1028,10 @@ the order each endpoint should use is given with that endpoint.
 **Pagination.** Only `/reports/:type` is paginated by the server (`page`, `pageSize`, and
 `pagination` in the response). Every other list endpoint returns all rows, and the Inventory and
 Transactions pages show the first 10 / 8 with a "View All" button. That is a **known limitation**:
-it is fine for the demo data and will not scale. **Open decision:** the pagination contract for
-`/inventory`, `/transactions/*`, `/users` and `/notifications`, and whether the three lookup
+it is fine for the demo data and will not scale. **Decided (decision 9):** `/inventory`,
+`/transactions/*`, `/users` and `/notifications` stay unpaginated for now, and the three lookup
 endpoints (`/inventory/lookup`, `/inventory/batches/lookup`, `/users/directory`), which return
-every record so ids can be shown as names, should be replaced by names embedded in the responses.
+every record so ids can be shown as names, stay as they are.
 Each page that shows names loads those lookups when it opens.
 
 ## 6. Mock mode notes
@@ -1039,23 +1097,26 @@ be sent without the UI.
 - The session token is kept in web storage, and there is no token refresh.
 - The app is one JavaScript bundle (about 500 kB); routes are not split.
 
-**Open decisions** (the mock's current behaviour is in brackets)
+**Decisions.** "Decided" rows are settled for the backend. "Open" rows were not discussed yet: the
+backend follows the behaviour shown until they are.
 
-| # | Decision | Current behaviour |
-|---|---|---|
-| 1 | May an item with stock be archived, and what happens to the stock? | Refused with `409` until the stock is 0 |
-| 2 | Who may archive / restore items, and edit or cancel transactions recorded by someone else? | Any signed-in user |
-| 3 | Must quantities be whole numbers? | Forms offer whole numbers; the data layer accepts any number above 0 |
-| 4 | May a transaction be dated in the future? May an already expired batch be received? | Both allowed |
-| 5 | Who may record an expired stock disposal? | Any signed-in user (issuing expired stock is refused for everyone) |
-| 6 | Money: stored precision and the currency | Unit costs to 4 decimals, totals to 2; symbol `$` in one constant |
-| 7 | Which time zone defines "today" | The browser's local date |
-| 8 | Token lifetime, refresh and storage | No expiry in the mock; web storage |
-| 9 | Pagination for inventory, transactions, users, notifications; lookups versus embedded names | Not paginated; three lookup endpoints |
-| 10 | Report export beyond 1000 rows | Truncated, and labelled as such |
-| 11 | Can more admins be created, roles changed, users deleted? | Storekeepers can be created; nothing else |
-| 12 | May a storekeeper edit their own name / email / phone? | Endpoint allows it; UI does not offer it |
-| 13 | Self-service password reset by email | Not available; an admin sets a new password |
-| 14 | Are alerts stored or derived; meaning of `createdAt`; unread again when they return? | Derived on read; first seen; yes |
-| 15 | When is `lastActiveAt` updated? | At login only |
-| 16 | Is stock valued at the item's Average Cost or per batch? Should a disposal produce an accounting write-off? | Average Cost for available, expired and disposed stock; no write-off entry |
+| # | Question | Status | Answer / current behaviour |
+|---|---|---|---|
+| 1 | May an item with stock be archived, and what happens to the stock? | Open | Refused with `409` until the stock is 0 and no expired stock awaits disposal |
+| 2 | Who may archive / restore items, and edit or cancel transactions recorded by someone else? | Decided | Any signed-in user (admin or storekeeper). Who recorded, edited and cancelled is kept |
+| 3 | Must quantities be whole numbers? | Decided | Yes, quantities and `minQty`. The mock still accepts any number above 0 |
+| 4 | May a transaction be dated in the future? May an already expired batch be received? | Decided | No future dates. A batch whose `expiryDate` is before its receipt `date` is refused; `expiryDate` may be `null` |
+| 5 | Who may record an expired stock disposal? | Decided | Any signed-in user (issuing expired stock is refused for everyone) |
+| 6 | Money: stored precision and the currency | Decided | US dollars; unit costs to 4 decimals, totals to 2 |
+| 7 | Which time zone defines "today" | Decided | `Asia/Gaza`, on the server. The mock uses the browser's local date |
+| 8 | Token lifetime, refresh and storage | Decided | Sanctum token, 24 hours or 30 days with "Remember me"; no refresh; web storage |
+| 9 | Pagination for inventory, transactions, users, notifications; lookups versus embedded names | Decided | Not paginated for now (reports are); the three lookup endpoints stay |
+| 10 | Report export beyond 1000 rows | Open | Truncated, and labelled as such |
+| 11 | Can more admins be created, roles changed, users deleted? | Decided | One admin from the seeder; only storekeepers are created; no role changes; users are deactivated, never deleted |
+| 12 | May a storekeeper edit their own name / email / phone? | Open | Endpoint allows it; UI does not offer it |
+| 13 | Self-service password reset by email | Open | Not available; an admin sets a new password |
+| 14 | Are alerts stored or derived; meaning of `createdAt`; unread again when they return? | Open | Derived from the stock state; `createdAt` is when the condition was first seen; unread again when it returns |
+| 15 | When is `lastActiveAt` updated? | Open | At login only |
+| 16 | Is stock valued at the item's Average Cost or per batch? Should a disposal produce an accounting write-off? | Decided | One moving Average Cost per item, for available, expired and disposed stock. Expired stock awaiting disposal stays in the quantity the average is built on; a disposal does not change the average. No write-off entry |
+| 17 | Who may see the reports? | Decided | Both roles, all four reports (storekeeper page planned) |
+| 18 | Is the history of edits to a transaction kept? | Decided | Yes, every edit with who, when, old and new values ("Edit history", section 3) |

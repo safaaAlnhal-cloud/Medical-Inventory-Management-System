@@ -65,7 +65,8 @@ return [
     |
     */
 
-    'timezone' => 'UTC',
+    // "Today" for expiry status, alerts and report periods is the medical center's local date.
+    'timezone' => env('APP_TIMEZONE', 'Asia/Gaza'),
 
     /*
     |--------------------------------------------------------------------------
