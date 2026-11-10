@@ -24,6 +24,11 @@ class Transaction extends Model
 {
     use HasFactory;
 
+    // The migration's default, so a transaction that was just created is already active in memory.
+    protected $attributes = [
+        'status' => 'active',
+    ];
+
     protected function casts(): array
     {
         return [

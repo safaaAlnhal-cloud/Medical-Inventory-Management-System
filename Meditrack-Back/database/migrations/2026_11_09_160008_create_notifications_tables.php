@@ -9,17 +9,23 @@ return new class extends Migration
     public function up(): void
     {
         // One row per alert condition that currently exists (low stock, out of stock, an expiring
-        // or expired batch). The row is added when the condition first appears and removed when it
-        // is resolved; if the condition comes back it is a new, unread alert (as in the mock).
+        // or expired batch, a storekeeper account about to expire). The row is added when the
+        // condition first appears and removed when it is resolved; if the condition comes back it
+        // is a new, unread alert (as in the mock).
         Schema::create('notifications', function (Blueprint $table) {
             $table->id();
-            // "<type>-<itemId or batchId>", e.g. "low_stock-4", "expiring-9". Returned as the
-            // alert's id and guarantees one alert per condition.
+            // "<type>-<itemId, batchId or userId>", e.g. "low_stock-4", "expiring-9",
+            // "account_expiring-3". Returned as the alert's id and guarantees one alert per
+            // condition.
             $table->string('key', 50)->unique();
-            // App\Enums\NotificationType: low_stock | out_of_stock | expiring.
-            $table->string('type', 20);
-            $table->foreignId('item_id')->constrained()->restrictOnDelete();
+            // App\Enums\NotificationType.
+            $table->string('type', 30);
+            // Stock and expiry alerts: the item (and the batch for expiry alerts).
+            $table->foreignId('item_id')->nullable()->constrained()->restrictOnDelete();
             $table->foreignId('batch_id')->nullable()->constrained()->restrictOnDelete();
+            // Account alerts: the storekeeper whose account expires. Seen by the admin and by
+            // that storekeeper only.
+            $table->foreignId('user_id')->nullable()->constrained()->restrictOnDelete();
             // Returned as createdAt: when the condition was first seen.
             $table->timestamp('first_seen_at');
         });
