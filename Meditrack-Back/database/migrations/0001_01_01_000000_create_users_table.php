@@ -22,6 +22,9 @@ return new class extends Migration
             $table->string('status', 20)->default('active');
             $table->string('phone', 30)->nullable();
             $table->timestamp('last_active_at')->nullable();
+            // Storekeepers only: the last day the account can be used (null = never expires).
+            // From the next day sign-in is refused and existing tokens get 401.
+            $table->date('account_expires_on')->nullable();
             $table->rememberToken();
             $table->timestamps();
         });

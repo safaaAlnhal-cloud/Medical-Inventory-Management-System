@@ -11,12 +11,17 @@ return new class extends Migration
         Schema::create('batches', function (Blueprint $table) {
             $table->id();
             $table->foreignId('item_id')->constrained()->restrictOnDelete();
-            // Unique per item among batches whose incoming transaction is active, so the rule is
-            // checked in the application (a cancelled receipt frees its number).
+            // The same item can be received from different manufacturers; null = unknown.
+            $table->foreignId('manufacturer_id')->nullable()->constrained()->restrictOnDelete();
+            // Printed by the manufacturer. Unique per item + manufacturer among batches whose
+            // incoming transaction is active (no manufacturer = one group of its own). Checked in
+            // the application, because a unique index cannot express "active only".
             $table->string('batch_number', 100);
-            // Purchase price, supplier and expiry the batch was received with.
+            // Purchase price, supplier and dates the batch was received with.
             $table->decimal('unit_cost', 12, 4);
-            $table->string('supplier', 150);
+            // Optional: donations have no commercial supplier.
+            $table->string('supplier', 150)->nullable();
+            $table->date('manufacturing_date')->nullable();
             // null = the supply does not expire: never "expired" or "expiring soon", no alerts.
             $table->date('expiry_date')->nullable();
             // Cached physical stock (received - issued - disposed), expired stock included.
@@ -24,7 +29,7 @@ return new class extends Migration
             $table->unsignedInteger('quantity')->default(0);
             $table->timestamps();
 
-            $table->index(['item_id', 'batch_number']);
+            $table->index(['item_id', 'manufacturer_id', 'batch_number']);
             $table->index('expiry_date');
         });
     }

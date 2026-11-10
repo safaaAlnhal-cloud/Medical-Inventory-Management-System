@@ -10,11 +10,12 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
 /**
- * An alert condition that currently exists. key ("low_stock-4", "expiring-9") is the id the API
- * returns. first_seen_at is returned as createdAt.
+ * An alert condition that currently exists. key ("low_stock-4", "expiring-9",
+ * "account_expiring-3") is the id the API returns. first_seen_at is returned as createdAt.
+ * Stock and expiry alerts have item_id (and batch_id); account alerts have user_id.
  */
 #[Table(timestamps: false)]
-#[Fillable(['key', 'type', 'item_id', 'batch_id', 'first_seen_at'])]
+#[Fillable(['key', 'type', 'item_id', 'batch_id', 'user_id', 'first_seen_at'])]
 class Notification extends Model
 {
     protected function casts(): array
@@ -34,6 +35,12 @@ class Notification extends Model
     public function batch(): BelongsTo
     {
         return $this->belongsTo(Batch::class);
+    }
+
+    /** Only for account alerts: the storekeeper whose account expires. */
+    public function user(): BelongsTo
+    {
+        return $this->belongsTo(User::class);
     }
 
     /** Which users have read this alert. */

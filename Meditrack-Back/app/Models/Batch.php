@@ -15,15 +15,24 @@ use Illuminate\Database\Eloquent\Relations\HasOne;
  * A batch is created by an incoming transaction. quantity is not fillable: it is a cached value
  * that only StockService writes.
  */
-#[Fillable(['item_id', 'batch_number', 'unit_cost', 'supplier', 'expiry_date'])]
+#[Fillable([
+    'item_id', 'manufacturer_id', 'batch_number', 'unit_cost', 'supplier', 'manufacturing_date',
+    'expiry_date',
+])]
 class Batch extends Model
 {
     use HasFactory;
+
+    // The migration's default: StockService fills the real quantity.
+    protected $attributes = [
+        'quantity' => 0,
+    ];
 
     protected function casts(): array
     {
         return [
             'unit_cost' => 'decimal:4',
+            'manufacturing_date' => 'date',
             'expiry_date' => 'date',
             'quantity' => 'integer',
         ];
@@ -32,6 +41,12 @@ class Batch extends Model
     public function item(): BelongsTo
     {
         return $this->belongsTo(Item::class);
+    }
+
+    /** null when the manufacturer is unknown. */
+    public function manufacturer(): BelongsTo
+    {
+        return $this->belongsTo(Manufacturer::class);
     }
 
     /** Every transaction that references this batch: its receipt, issues and disposals. */

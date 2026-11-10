@@ -9,6 +9,8 @@ use App\Enums\UserStatus;
 use App\Models\Batch;
 use App\Models\Category;
 use App\Models\Item;
+use App\Models\ItemBarcode;
+use App\Models\Manufacturer;
 use App\Models\Transaction;
 use App\Models\User;
 use Illuminate\Support\Carbon;
@@ -26,6 +28,12 @@ use RuntimeException;
  * The arrays keep the mock's ids; they are mapped to the ids the database gives each record.
  * Expected stock after seeding: Paracetamol 500, Amoxicillin 15, Gloves 8, Saline 120,
  * Syringes 0, Cotton Rolls 300.
+ *
+ * Added for the supervisor's requirements (not in the mock yet; each owner adds them to the mock
+ * with their feature): item details, manufacturers on batches, manufacturing dates, factory
+ * barcodes (Paracetamol has two manufacturers and two barcodes), and Reem's account expiring in
+ * 5 days so the account alerts can be seen. None of these change a stock figure or a cost.
+ * Company names are made up for the demo.
  */
 class DemoDataSeeder extends Seeder
 {
@@ -34,12 +42,17 @@ class DemoDataSeeder extends Seeder
     private array $itemIds = [];
     private array $batchIds = [];
 
+    /** manufacturer key => database id */
+    private array $manufacturerIds = [];
+
     public function run(): void
     {
         DB::transaction(function () {
             $this->seedUsers();
             $categoryIds = $this->seedCategories();
             $this->seedItems($categoryIds);
+            $this->seedManufacturers();
+            $this->seedBarcodes();
             $this->seedBatches();
             $this->seedTransactions();
             $this->recalculateStock();
@@ -52,20 +65,22 @@ class DemoDataSeeder extends Seeder
         $this->userIds[1] = User::where('email', 'sara@medcenter.ps')->value('id');
 
         $storekeepers = [
-            // [mock id, name, email, status, last active]
-            [2, 'Omar Saleh', 'omar@medcenter.ps', UserStatus::Active, now()->subMinutes(95)],
-            [3, 'Reem Haboush', 'reem@medcenter.ps', UserStatus::Active, $this->daysAgo(1, 16, 20)],
-            [4, 'Mahmoud Ali', 'mahmoud@medcenter.ps', UserStatus::Inactive, $this->daysAgo(3, 11, 0)],
-            [5, 'Safaa Alnhal', 'safaa@medcenter.ps', UserStatus::Active, $this->daysAgo(0, 9, 0)],
+            // [mock id, name, email, status, last active, account expires in days (null = never)]
+            [2, 'Omar Saleh', 'omar@medcenter.ps', UserStatus::Active, now()->subMinutes(95), null],
+            // A temporary contract: raises the "account expiring" alert for the admin and Reem.
+            [3, 'Reem Haboush', 'reem@medcenter.ps', UserStatus::Active, $this->daysAgo(1, 16, 20), 5],
+            [4, 'Mahmoud Ali', 'mahmoud@medcenter.ps', UserStatus::Inactive, $this->daysAgo(3, 11, 0), null],
+            [5, 'Safaa Alnhal', 'safaa@medcenter.ps', UserStatus::Active, $this->daysAgo(0, 9, 0), null],
         ];
 
-        foreach ($storekeepers as [$mockId, $name, $email, $status, $lastActiveAt]) {
+        foreach ($storekeepers as [$mockId, $name, $email, $status, $lastActiveAt, $expiresInDays]) {
             $user = User::create([
                 'name' => $name,
                 'email' => $email,
                 'password' => 'store123',
                 'role' => UserRole::Storekeeper,
                 'status' => $status,
+                'account_expires_on' => $expiresInDays === null ? null : today()->addDays($expiresInDays),
             ]);
             $user->forceFill(['last_active_at' => $lastActiveAt])->save();
             $this->userIds[$mockId] = $user->id;
@@ -97,40 +112,102 @@ class DemoDataSeeder extends Seeder
             [6, 'Cotton Rolls', 2, 'pack', 40],
         ];
 
+        // Optional details. Medicines have most of them; supplies only some, or none.
+        $details = [
+            1 => ['active_ingredient' => 'Paracetamol', 'strength' => '500 mg', 'dosage_form' => 'Tablet',
+                'storage_conditions' => 'Store below 25°C in a dry place', 'uses' => 'Relief of mild to moderate pain and fever',
+                'description' => '20 tablets per box'],
+            2 => ['active_ingredient' => 'Amoxicillin', 'strength' => '250 mg', 'dosage_form' => 'Capsule',
+                'storage_conditions' => 'Store below 25°C', 'uses' => 'Treatment of bacterial infections',
+                'description' => '16 capsules per box'],
+            3 => ['dosage_form' => null, 'storage_conditions' => 'Keep away from heat and sunlight',
+                'description' => 'Latex, size M, 100 gloves per box'],
+            4 => ['active_ingredient' => 'Sodium chloride', 'strength' => '0.9%', 'dosage_form' => 'Solution for infusion',
+                'storage_conditions' => 'Store below 30°C, do not freeze', 'uses' => 'Fluid and electrolyte replacement',
+                'description' => '500 ml bottle'],
+            5 => ['description' => 'Sterile, single use, 100 syringes per box'],
+            6 => [],
+        ];
+
         foreach ($items as [$mockId, $name, $categoryId, $unit, $minQty]) {
             $this->itemIds[$mockId] = Item::create([
                 'category_id' => $categoryIds[$categoryId],
                 'name' => $name,
                 'unit' => $unit,
                 'min_qty' => $minQty,
+                ...$details[$mockId],
             ])->id;
+        }
+    }
+
+    private function seedManufacturers(): void
+    {
+        $manufacturers = [
+            'nova' => 'Nova Pharma',
+            'medica' => 'Medica Labs',
+            'safecare' => 'SafeCare Industries',
+            'purefluids' => 'PureFluids Co.',
+            'cottonline' => 'CottonLine',
+        ];
+
+        foreach ($manufacturers as $key => $name) {
+            $this->manufacturerIds[$key] = Manufacturer::create([
+                'name' => $name,
+                'normalized_name' => Manufacturer::normalize($name),
+            ])->id;
+        }
+    }
+
+    /** Factory barcodes: Paracetamol is made by two manufacturers, each with its own barcode. */
+    private function seedBarcodes(): void
+    {
+        $barcodes = [
+            // [mock item id, manufacturer key, barcode]
+            [1, 'nova', '6291100100011'],
+            [1, 'medica', '6291100200018'],
+            [2, 'medica', '6291100200025'],
+            [3, 'safecare', '6291100300015'],
+            [4, 'purefluids', '6291100400012'],
+            [5, 'safecare', '6291100300022'],
+        ];
+
+        foreach ($barcodes as [$itemId, $manufacturer, $barcode]) {
+            ItemBarcode::create([
+                'item_id' => $this->itemIds[$itemId],
+                'manufacturer_id' => $this->manufacturerIds[$manufacturer],
+                'barcode' => $barcode,
+            ]);
         }
     }
 
     private function seedBatches(): void
     {
         $batches = [
-            // [mock id, mock item id, batch number, unit cost, supplier, expiry in days (null = none)]
+            // [mock id, mock item id, batch number, unit cost, supplier, expiry in days (null = none),
+            //  manufacturer key (null = unknown), manufactured days ago (null = unknown)]
+            // The manufacturing date is always before the batch's receipt date.
             // Older batches, fully consumed.
-            [1, 5, 'SY-501', 3.2, 'MedEquip', 400],
-            [2, 1, 'PC-090', 11.5, 'PharmaCo', 200],
-            [3, 6, 'CR-590', 5.5, 'CareGoods', 250],
-            [4, 4, 'SS-390', 4.2, 'BioLab', 120],
-            // Batches currently in stock.
-            [5, 1, 'PC-101', 12, 'PharmaCo', 430],
-            [6, 1, 'PC-102', 13.25, 'MedGlobal', 520],
-            [7, 6, 'CR-601', 6, 'CareGoods', 300],
-            [8, 3, 'SG-301', 25, 'MedEquip', null],
-            [9, 2, 'AM-201', 8.75, 'HealthCare', 12],
-            [10, 4, 'SS-401', 4.5, 'BioLab', 20],
+            [1, 5, 'SY-501', 3.2, 'MedEquip', 400, 'safecare', 300],
+            [2, 1, 'PC-090', 11.5, 'PharmaCo', 200, 'nova', 500],
+            [3, 6, 'CR-590', 5.5, 'CareGoods', 250, 'cottonline', null],
+            [4, 4, 'SS-390', 4.2, 'BioLab', 120, 'purefluids', 400],
+            // Batches currently in stock. Paracetamol's two batches come from two manufacturers.
+            [5, 1, 'PC-101', 12, 'PharmaCo', 430, 'nova', 300],
+            [6, 1, 'PC-102', 13.25, 'MedGlobal', 520, 'medica', 200],
+            [7, 6, 'CR-601', 6, 'CareGoods', 300, 'cottonline', null],
+            [8, 3, 'SG-301', 25, 'MedEquip', null, 'safecare', null],
+            [9, 2, 'AM-201', 8.75, 'HealthCare', 12, 'medica', 700],
+            [10, 4, 'SS-401', 4.5, 'BioLab', 20, 'purefluids', 680],
         ];
 
-        foreach ($batches as [$mockId, $itemId, $number, $unitCost, $supplier, $expiresInDays]) {
+        foreach ($batches as [$mockId, $itemId, $number, $unitCost, $supplier, $expiresInDays, $manufacturer, $madeDaysAgo]) {
             $this->batchIds[$mockId] = Batch::create([
                 'item_id' => $this->itemIds[$itemId],
+                'manufacturer_id' => $manufacturer === null ? null : $this->manufacturerIds[$manufacturer],
                 'batch_number' => $number,
                 'unit_cost' => $unitCost,
                 'supplier' => $supplier,
+                'manufacturing_date' => $madeDaysAgo === null ? null : today()->subDays($madeDaysAgo),
                 'expiry_date' => $expiresInDays === null ? null : today()->addDays($expiresInDays),
             ])->id;
         }
