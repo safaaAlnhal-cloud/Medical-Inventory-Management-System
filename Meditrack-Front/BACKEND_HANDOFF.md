@@ -158,7 +158,7 @@ show each message under the input whose name matches the key; a failure without 
 | Form | Keys |
 |---|---|
 | Item | `name`, `categoryId`, `unit`, `minQty`; **planned:** `activeIngredient`, `strength`, `dosageForm`, `storageConditions`, `uses`, `description` |
-| Transaction | `type`, `itemId`, `quantity`, `unitCost`, `date`, `expiryDate`, `batchNumber`, `supplier`, `batchId`, `recipient`; **planned:** `manufacturer`, `manufacturingDate` |
+| Transaction | `type`, `itemId`, `quantity`, `unitCost`, `date`, `expiryDate`, `batchNumber`, `supplier`, `manufacturer`, `manufacturingDate`, `batchId`, `recipient` |
 | User | `name`, `email`, `password`, `status`, `newPassword`; **planned:** `accountExpiresOn` |
 | Barcode (**planned**) | `barcode`, `manufacturer` |
 | Archive item (**planned**) | `reason` |
@@ -256,9 +256,10 @@ Passwords are never returned by any endpoint.
 ```json
 { "id": 5, "itemId": 1, "batchNumber": "PC-101", "unitCost": 12, "supplier": "PharmaCo", "expiryDate": "2027-12-12" }
 ```
-**Planned** fields: `"manufacturerId": 2` and `"manufacturingDate": "2025-12-01"`, both `null`
-when unknown. `supplier` becomes **optional** (`null` for donations and stock with no commercial
-supplier); the UI shows "—" for it. These three also appear on each batch inside an item.
+**Implemented** on incoming transactions (mock and API): `"manufacturerId": 2` and
+`"manufacturingDate": "2025-12-01"`, both `null` when unknown, and `supplier` is **optional**
+(`null` for donations and stock with no commercial supplier); the UI shows "—" for it.
+**Planned:** these three also appear on each batch inside an item (`GET /inventory`).
 - `id` is the **unique internal identifier** of the batch. Transactions and notifications
   reference a batch by this id (`batchId`), never by its number.
 - `batchNumber` is the label the manufacturer printed on the box; the system never generates one.
@@ -292,7 +293,7 @@ supplier); the UI shows "—" for it. These three also appear on each batch insi
 - `date` is the business date chosen in the form; `createdAt` is when the record was saved (used
   for "newest first" and for the order in which the Average Cost is built up).
 - `supplier`, `expiryDate` exist on incoming only (`expiryDate` may be `null`). `recipient` exists on outgoing only.
-  **Planned:** incoming also carries `manufacturerId` and `manufacturingDate` (both may be
+  **Implemented:** incoming also carries `manufacturerId` and `manufacturingDate` (both may be
   `null`), and `supplier` may be `null`. Like `supplier` and `expiryDate`, they are read from the
   batch the transaction received.
 - `reason` exists on outgoing only: `"issue"` (usable stock given to `recipient`) or
@@ -340,8 +341,8 @@ supplier); the UI shows "—" for it. These three also appear on each batch insi
 ```
 A company that makes the products. Linked to batches and to barcodes, never to an item.
 **Implemented:** the list and search, `GET /manufacturers` (section 4.4), in both mock and API
-mode (`getManufacturersApi` in `src/services/manufacturersApi.js`). Creating a manufacturer from
-the Incoming form is still planned.
+mode (`getManufacturersApi` in `src/services/manufacturersApi.js`). **Implemented:** a manufacturer
+is created from the Incoming form (section 4.5), which suggests the existing names as the user types.
 
 ### Barcodes and manufacturers (planned)
 
@@ -580,9 +581,9 @@ Editable fields:
 | `batchNumber` | yes | no | Renames the batch this transaction received. Unique per item **and manufacturer** among active batches |
 | `unitCost` | yes | no | Zero or more. Also stored on the batch |
 | `expiryDate` | yes | no | A real date or `null`, not before `date`. Also stored on the batch |
-| `supplier` | yes | no | **Optional** (planned; required today). Also stored on the batch |
-| `manufacturer` | yes | no | **Planned.** Optional manufacturer name; an unknown name creates the manufacturer. Also stored on the batch |
-| `manufacturingDate` | yes | no | **Planned.** A real date or `null`; not in the future, not after `date`, not after `expiryDate`. Also stored on the batch |
+| `supplier` | yes | no | **Optional**. Also stored on the batch |
+| `manufacturer` | yes | no | Optional manufacturer name; an unknown name creates the manufacturer. Also stored on the batch |
+| `manufacturingDate` | yes | no | A real date or `null`; not in the future, not after `date`, not after `expiryDate`. Also stored on the batch |
 | `batchId` | no | yes | Which batch the stock is issued from |
 | `recipient` | no | yes | Required |
 
@@ -959,10 +960,14 @@ parameters are optional.
 `POST /transactions/incoming` request:
 ```json
 { "itemId": 4, "batchNumber": "SS-402", "quantity": 100, "unitCost": 4.5, "date": "2026-10-08",
-  "expiryDate": "2027-03-01", "supplier": "BioLab" }
+  "expiryDate": "2027-03-01", "supplier": "BioLab", "manufacturer": "BioLab Pharma", "manufacturingDate": "2026-08-15" }
 ```
-**Planned** additions: `"manufacturer": "BioLab Pharma"` (name, optional) and
-`"manufacturingDate": "2026-08-15"` (optional); `supplier` becomes optional.
+**Implemented** (backend, mock and form): `GET` and `POST /transactions/incoming`.
+`expiryDate`, `supplier`, `manufacturer` and `manufacturingDate` are optional (`null`).
+- `manufacturer` is a **name**. It is matched to an existing manufacturer in any spelling
+  (`ManufacturerService::resolve()`); a name that matches none creates it, in the same database
+  transaction as the receipt, so a rejected receipt leaves no new manufacturer behind. The
+  response carries `manufacturerId`.
 - Every incoming transaction **creates a new batch** with a new unique id. The response carries
   that id as `batchId`.
 - `batchNumber` is the label printed by the manufacturer. `409` if the item already has an active
@@ -971,7 +976,7 @@ parameters are optional.
 - `date` and `expiryDate` must be real dates (`422` otherwise).
 - `expiryDate` may be `null`.
 
-Incoming form (planned markers): `itemId` *, `quantity` *, `unitCost` *, `date` *,
+Incoming form (**implemented** markers): `itemId` *, `quantity` *, `unitCost` *, `date` *,
 `batchNumber` *; optional: `manufacturer`, `manufacturingDate`, `expiryDate`, `supplier`.
 Outgoing form: `itemId` *, `batchId` *, `quantity` *, `date` *, `recipient` * (no optional field).
 - The item's Average Cost is updated as described in section 3.
@@ -1007,9 +1012,9 @@ and no stock change behind):
 | Incoming: the item has no active batch with that number from the same manufacturer (no manufacturer = its own group) | `409` | `batchNumber` |
 | Incoming: `expiryDate` is `null` or a real date | `422` | `expiryDate` |
 | Incoming: `expiryDate` is not before `date`: stock that was already expired when it arrived cannot be received. A back-dated receipt of a batch that has expired since is accepted and counts as expired stock at once | `422` | `expiryDate` |
-| Incoming: `supplier` is required today. **Planned:** optional, at most 150 characters | `422` | `supplier` |
-| Planned. Incoming: `manufacturer` is optional, at most 150 characters | `422` | `manufacturer` |
-| Planned. Incoming: `manufacturingDate` is `null` or a real date, not in the future, not after `date` and not after `expiryDate` | `422` | `manufacturingDate` |
+| Incoming: `supplier` is optional, at most 150 characters | `422` | `supplier` |
+| Incoming: `manufacturer` is optional, at most 150 characters, and has at least one letter or digit | `422` | `manufacturer` |
+| Incoming: `manufacturingDate` is `null` or a real date, not in the future, not after `date` and not after `expiryDate` | `422` | `manufacturingDate` |
 | Outgoing: `batchId` is a batch of that item with stock | `422` | `batchId` |
 | Outgoing: `quantity` is not more than the batch holds | `422` | `quantity` |
 | Outgoing: `date` is not before the date the batch was received | `422` | `date` |
@@ -1033,7 +1038,8 @@ type being saved:
 { "type": "incoming", "itemId": 4, "quantity": 140, "date": "2026-10-03",
   "batchNumber": "SS-401A", "unitCost": 5, "expiryDate": "2027-12-31", "supplier": "BioLab" }
 ```
-(**planned:** plus `manufacturer` and `manufacturingDate`, as on create)
+(plus `manufacturer` and `manufacturingDate`, as on create: **implemented** in the edit form and the
+mock; the backend endpoint itself is built in phase 4)
 ```json
 { "type": "outgoing", "itemId": 4, "quantity": 10, "date": "2026-10-05",
   "batchId": 10, "recipient": "Surgery Ward" }

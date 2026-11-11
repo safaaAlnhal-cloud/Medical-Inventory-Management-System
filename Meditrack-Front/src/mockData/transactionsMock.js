@@ -5,10 +5,14 @@ import { daysAgo, minutesAgo } from './mockDates';
 const stamp = (when) => ({ date: toISODate(when), createdAt: when.toISOString(), status: 'active', cancelledAt: null, cancelledBy: null });
 const batchById = (batchId) => mockBatches.find((batch) => batch.id === batchId);
 
-// Receiving a batch. The item, purchase price, supplier and expiry come from the batch record.
+// Receiving a batch. The item, purchase price, supplier, dates and manufacturer come from the
+// batch record.
 const incoming = (id, when, batchId, quantity, recordedBy) => {
   const batch = batchById(batchId);
-  return { id, type: 'incoming', itemId: batch.itemId, batchId, quantity, unitCost: batch.unitCost, supplier: batch.supplier, expiryDate: batch.expiryDate, recordedBy, ...stamp(when) };
+  return {
+    id, type: 'incoming', itemId: batch.itemId, batchId, quantity, unitCost: batch.unitCost, supplier: batch.supplier,
+    expiryDate: batch.expiryDate, manufacturerId: batch.manufacturerId, manufacturingDate: batch.manufacturingDate, recordedBy, ...stamp(when),
+  };
 };
 
 // Issuing from a batch. unitCost is the item's Average Cost at the time it was recorded.

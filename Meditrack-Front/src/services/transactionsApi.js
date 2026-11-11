@@ -11,7 +11,8 @@ import { request } from './request';
 
 // Frontend transaction model:
 // { id, type, itemId, batchId, quantity, date, createdAt, recordedBy (userId),
-//   unitCost, supplier, expiryDate (incoming only), recipient, reason (outgoing only),
+//   unitCost, supplier, expiryDate, manufacturerId, manufacturingDate (incoming only),
+//   recipient, reason (outgoing only),
 //   status ('active' | 'cancelled'), cancelledAt, cancelledBy (userId) }
 // reason:   outgoing only. 'issue' = usable stock given to `recipient`; 'expired_disposal' =
 //           expired stock removed from its batch (no recipient). Null on incoming.
@@ -34,6 +35,9 @@ export const mapTransaction = (dto) => ({
   unitCost: dto.unitCost == null ? null : Number(dto.unitCost),
   supplier: dto.supplier ?? null,
   expiryDate: dto.expiryDate ?? null,
+  // Incoming only, both read from the batch it received; null when unknown.
+  manufacturerId: dto.manufacturerId ?? null,
+  manufacturingDate: dto.manufacturingDate ?? null,
   recipient: dto.recipient ?? null,
   // Outgoing only: 'issue' (usable stock given to a recipient) or 'expired_disposal' (expired
   // stock removed; it has no recipient). An outgoing transaction without one is an issue.
@@ -47,11 +51,12 @@ const byNewest = (a, b) => b.createdAt.localeCompare(a.createdAt);
 
 const listMock = (db, type, { search, itemId, from, to }) => {
   const { itemNames, userNames, batchNumbers } = selectNameMaps(db);
+  const manufacturerNames = new Map(db.manufacturers.map((manufacturer) => [manufacturer.id, manufacturer.name]));
   return db.transactions
     .filter((tx) => tx.type === type)
     .filter((tx) => !itemId || tx.itemId === itemId)
     .filter((tx) => (!from || tx.date >= from) && (!to || tx.date <= to))
-    .filter((tx) => matchesSearch([itemNames.get(tx.itemId), batchNumbers.get(tx.batchId), tx.supplier, tx.recipient, userNames.get(tx.recordedBy), isDisposal(tx) ? OUTGOING_REASON_LABELS[tx.reason] : null], search))
+    .filter((tx) => matchesSearch([itemNames.get(tx.itemId), batchNumbers.get(tx.batchId), tx.supplier, tx.recipient, userNames.get(tx.recordedBy), manufacturerNames.get(tx.manufacturerId), isDisposal(tx) ? OUTGOING_REASON_LABELS[tx.reason] : null], search))
     .sort(byNewest);
 };
 
@@ -104,6 +109,48 @@ const requireText = (value, field, message) => {
   return text;
 };
 
+// Supplier and manufacturer names: optional, at most 150 characters, inner spaces collapsed.
+const MAX_NAME_LENGTH = 150;
+const optionalName = (value, field, label) => {
+  const text = String(value ?? '').trim().replace(/\s+/g, ' ');
+  if (text.length > MAX_NAME_LENGTH) throw invalid(`${label} may not be longer than ${MAX_NAME_LENGTH} characters.`, 422, field);
+  return text || null;
+};
+
+// Not in the future, not after the receipt date, not after the expiry date.
+const optionalManufacturingDate = (value, date, expiryDate) => {
+  if (!value) return null;
+  if (!isValidDate(value)) throw invalid('Manufacturing date is not a valid date.', 422, 'manufacturingDate');
+  if (value > toISODate() || value > date || (expiryDate && value > expiryDate)) {
+    throw invalid('Manufacturing date cannot be in the future, after the transaction date or after the expiry date.', 422, 'manufacturingDate');
+  }
+  return value;
+};
+
+// The same comparison as the backend's Manufacturer::normalize(): letter case, spaces and
+// punctuation are ignored, so "PharmaCo", "pharmaco" and "Pharma Co." are one manufacturer.
+const normalizeName = (name) => name.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, '');
+
+// The manufacturer the user typed: an existing one matched by any spelling, a new one
+// ({ id: null, name }) that saveManufacturer stores once every rule has passed, or null when
+// the field was left empty.
+const findManufacturer = (db, value) => {
+  const name = optionalName(value, 'manufacturer', 'Manufacturer');
+  if (!name) return null;
+  const normalized = normalizeName(name);
+  if (!normalized) throw invalid('Enter a manufacturer name with letters or numbers.', 422, 'manufacturer');
+  return db.manufacturers.find((manufacturer) => normalizeName(manufacturer.name) === normalized) ?? { id: null, name };
+};
+
+const saveManufacturer = (db, manufacturer) => {
+  if (!manufacturer) return null;
+  if (manufacturer.id === null) {
+    manufacturer.id = nextId(db.manufacturers);
+    db.manufacturers.push(manufacturer);
+  }
+  return manufacturer.id;
+};
+
 // New transactions can only be recorded against an item in the active inventory.
 const requireActiveItem = (db, itemId) => {
   const item = db.items.find((candidate) => candidate.id === itemId);
@@ -128,13 +175,18 @@ const issuesFrom = (db, batchId, exceptId) =>
   selectActiveTransactions(db).filter((tx) => tx.type === TRANSACTION_TYPES.OUTGOING && tx.batchId === batchId && tx.id !== exceptId);
 const totalQuantity = (transactions) => transactions.reduce((sum, tx) => sum + tx.quantity, 0);
 
-// A batch number is unique per item. A batch whose receipt was cancelled no longer exists as
-// stock, so its number can be used again (the usual reason to cancel is to re-enter the
-// receipt correctly). `exceptBatchId` is the batch being edited.
-const assertBatchNumberFree = (db, itemId, batchNumber, exceptBatchId) => {
+// A batch number is unique per item AND manufacturer (two manufacturers may print the same
+// number), letter case ignored. Batches with no manufacturer form one group of their own; a
+// manufacturer that is new has no batches yet, so nothing can clash with it. A batch whose
+// receipt was cancelled no longer exists as stock, so its number can be used again (the usual
+// reason to cancel is to re-enter the receipt correctly). `exceptBatchId` is the batch being edited.
+const assertBatchNumberFree = (db, itemId, manufacturer, batchNumber, exceptBatchId) => {
+  if (manufacturer && manufacturer.id === null) return;
+  const manufacturerId = manufacturer?.id ?? null;
   const duplicate = db.batches.some((batch) => batch.id !== exceptBatchId && batch.itemId === itemId
+    && (batch.manufacturerId ?? null) === manufacturerId
     && batch.batchNumber.toLowerCase() === batchNumber.toLowerCase() && receiptOf(db, batch.id));
-  if (duplicate) throw invalid(`Batch ${batchNumber} already exists for this item. Please use a different batch number.`, 409, 'batchNumber');
+  if (duplicate) throw invalid(`Batch ${batchNumber} already exists for this item from the same manufacturer. Please use a different batch number.`, 409, 'batchNumber');
 };
 
 // MOCK BUSINESS LOGIC. Everything in createMock is what the backend will do once it exists.
@@ -172,12 +224,17 @@ const createMock = (db, type, payload, reason = OUTGOING_REASONS.ISSUE) => {
     const batchNumber = requireBatchNumber(payload.batchNumber);
     const unitCost = requireUnitCost(payload.unitCost);
     const expiryDate = optionalExpiryDate(payload.expiryDate);
-    const supplier = requireText(payload.supplier, 'supplier', 'Supplier is required.');
-    assertBatchNumberFree(db, item.id, batchNumber);
+    const supplier = optionalName(payload.supplier, 'supplier', 'Supplier');
+    const manufacturer = findManufacturer(db, payload.manufacturer);
+    const manufacturingDate = optionalManufacturingDate(payload.manufacturingDate, date, expiryDate);
+    assertBatchNumberFree(db, item.id, manufacturer, batchNumber);
 
-    const batch = { id: nextId(db.batches), itemId: item.id, batchNumber, unitCost, supplier, expiryDate };
+    // Only now, with every rule passed, is a new manufacturer stored: a rejected receipt leaves
+    // no manufacturer behind (the backend does the same in one database transaction).
+    const manufacturerId = saveManufacturer(db, manufacturer);
+    const batch = { id: nextId(db.batches), itemId: item.id, batchNumber, unitCost, supplier, expiryDate, manufacturerId, manufacturingDate };
     db.batches.push(batch);
-    transaction = { ...base, batchId: batch.id, unitCost, supplier, expiryDate };
+    transaction = { ...base, batchId: batch.id, unitCost, supplier, expiryDate, manufacturerId, manufacturingDate };
   } else {
     // The item as it stands right now, before this transaction is applied.
     const currentItem = selectItem(db, item);
@@ -308,7 +365,9 @@ const updateMock = (db, id, payload) => {
     const batchNumber = requireBatchNumber(payload.batchNumber);
     const unitCost = requireUnitCost(payload.unitCost);
     const expiryDate = optionalExpiryDate(payload.expiryDate);
-    const supplier = requireText(payload.supplier, 'supplier', 'Supplier is required.');
+    const supplier = optionalName(payload.supplier, 'supplier', 'Supplier');
+    const manufacturer = findManufacturer(db, payload.manufacturer);
+    const manufacturingDate = optionalManufacturingDate(payload.manufacturingDate, date, expiryDate);
 
     if (issued > 0) {
       if (itemChanged) throw invalid(`The item cannot be changed because ${issued} from batch ${ownBatchNumber} has already been issued. Cancel those outgoing transactions first.`, 409, 'itemId');
@@ -320,16 +379,22 @@ const updateMock = (db, id, payload) => {
     let batch;
     if (wasIncoming) {
       batch = db.batches.find((candidate) => candidate.id === transaction.batchId);
-      assertBatchNumberFree(db, item.id, batchNumber, batch.id);
-      Object.assign(batch, { itemId: item.id, batchNumber, unitCost, supplier, expiryDate });
+      assertBatchNumberFree(db, item.id, manufacturer, batchNumber, batch.id);
     } else {
-      assertBatchNumberFree(db, item.id, batchNumber);
-      batch = { id: nextId(db.batches), itemId: item.id, batchNumber, unitCost, supplier, expiryDate };
+      assertBatchNumberFree(db, item.id, manufacturer, batchNumber);
+    }
+    // `db` is a copy (transact), so a later failure also drops a manufacturer stored here.
+    const manufacturerId = saveManufacturer(db, manufacturer);
+    const batchFields = { itemId: item.id, batchNumber, unitCost, supplier, expiryDate, manufacturerId, manufacturingDate };
+    if (wasIncoming) {
+      Object.assign(batch, batchFields);
+    } else {
+      batch = { id: nextId(db.batches), ...batchFields };
       db.batches.push(batch);
     }
     delete transaction.recipient;
     delete transaction.reason;
-    Object.assign(transaction, { type, itemId: item.id, batchId: batch.id, quantity, date, unitCost, supplier, expiryDate });
+    Object.assign(transaction, { type, itemId: item.id, batchId: batch.id, quantity, date, unitCost, supplier, expiryDate, manufacturerId, manufacturingDate });
   } else {
     if (issued > 0) throw invalid(`This transaction cannot be changed to outgoing because ${issued} from batch ${ownBatchNumber}, which it received, has already been issued. Cancel those outgoing transactions first.`, 409);
 
@@ -352,6 +417,8 @@ const updateMock = (db, id, payload) => {
 
     delete transaction.supplier;
     delete transaction.expiryDate;
+    delete transaction.manufacturerId;
+    delete transaction.manufacturingDate;
     Object.assign(transaction, { type, itemId: item.id, batchId: batch.id, quantity, date, recipient, reason: OUTGOING_REASONS.ISSUE });
     if (wasIncoming || itemChanged) transaction.unitCost = selectItem(db, item).avgUnitCost;
   }
@@ -383,8 +450,10 @@ export const getIncomingTransactionsApi = (filters) => listTransactions(TRANSACT
 export const getOutgoingTransactionsApi = (filters) => listTransactions(TRANSACTION_TYPES.OUTGOING, filters);
 
 // The recorder is always the signed-in user (from the token); no user id is sent.
-// Payload: { itemId, batchNumber, quantity, unitCost, date, expiryDate, supplier }
-// Creates a new batch; the saved transaction comes back with that batch's batchId.
+// Payload: { itemId, batchNumber, quantity, unitCost, date, expiryDate, supplier, manufacturer,
+//   manufacturingDate }. expiryDate, supplier, manufacturer (a name) and manufacturingDate are
+//   optional (null). A manufacturer name that matches no existing one, in any spelling, creates it.
+// Creates a new batch; the saved transaction comes back with that batch's batchId and manufacturerId.
 export const createIncomingTransactionApi = (payload) => createTransaction(TRANSACTION_TYPES.INCOMING, payload);
 
 // Payload: { itemId, batchId, quantity, date, recipient }
@@ -407,7 +476,7 @@ export const createDisposalTransactionApi = async (payload) => {
 
 // Replaces every editable field of a transaction. Payload:
 //   { type, itemId, quantity, date }
-//   + incoming: { batchNumber, unitCost, expiryDate, supplier }
+//   + incoming: { batchNumber, unitCost, expiryDate, supplier, manufacturer, manufacturingDate }
 //   + outgoing: { batchId, recipient }     (no unitCost: the data layer sets it)
 // Resolves with the saved transaction. If any rule fails nothing is saved (see updateMock).
 export const updateTransactionApi = async (id, payload) => {
