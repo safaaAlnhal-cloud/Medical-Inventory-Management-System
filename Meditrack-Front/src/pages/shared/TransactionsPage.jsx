@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
 import { Plus, Filter, Calendar, ChevronDown, RotateCcw } from 'lucide-react';
 import { ACTION_BUTTON_TONE, DeleteIcon, EditIcon } from '../../components/common/ActionIcons';
 import ConfirmDialog from '../../components/common/ConfirmDialog';
@@ -16,6 +16,7 @@ import { useLookups } from '../../hooks/useLookups';
 import { useSearchQuery } from '../../hooks/useSearchQuery';
 import { getErrorMessage, getFieldErrors } from '../../services/apiError';
 import { getInventoryItemsApi } from '../../services/inventoryApi';
+import { getManufacturersApi } from '../../services/manufacturersApi';
 import {
   cancelTransactionApi,
   createIncomingTransactionApi,
@@ -36,12 +37,15 @@ const EMPTY_LIST = [];
 const NO_ERRORS = {};
 const DEFAULT_PAGE_SIZE = 8;
 
-const newIncomingForm = () => ({ itemId: '', quantity: '', unitCost: '', date: toISODate(), expiryDate: '', batchNumber: '', supplier: '' });
+const newIncomingForm = () => ({
+  itemId: '', quantity: '', unitCost: '', date: toISODate(), expiryDate: '', batchNumber: '', supplier: '', manufacturer: '', manufacturingDate: '',
+});
 const newOutgoingForm = () => ({ itemId: '', quantity: '', batchId: '', date: toISODate(), recipient: '' });
 const isExpired = (batch) => batch.expiryStatus === EXPIRY_STATUS.EXPIRED;
 
 // The edit form holds the fields of both types, so the type itself can be changed.
-const newEditForm = (transaction, batchNumber) => {
+// The manufacturer is edited by name, like on create.
+const newEditForm = (transaction, batchNumber, manufacturerName) => {
   const isIncoming = transaction.type === INCOMING;
   return {
     type: transaction.type,
@@ -52,6 +56,8 @@ const newEditForm = (transaction, batchNumber) => {
     expiryDate: transaction.expiryDate || '',
     batchNumber: isIncoming ? batchNumber : '',
     supplier: transaction.supplier || '',
+    manufacturer: manufacturerName || '',
+    manufacturingDate: transaction.manufacturingDate || '',
     batchId: isIncoming ? '' : String(transaction.batchId),
     recipient: transaction.recipient || '',
   };
@@ -74,13 +80,21 @@ const fieldInputClass = 'w-full bg-slate-50 border border-slate-200 rounded-xl p
 
 const EXPIRY_OPTION_NOTES = { [EXPIRY_STATUS.EXPIRING_SOON]: ', expiring soon' };
 
+// Marks a field the form cannot be saved without.
+const Required = () => <span className="text-red-500" aria-hidden="true"> *</span>;
+const Optional = () => <span className="font-semibold text-slate-400"> (optional)</span>;
+
 // The fields of an incoming / outgoing transaction, shared by the "add" and "edit" modals.
 // `form` holds the input values as strings; `onChange` receives the fields that changed;
 // `errors` holds the service's message for each rejected field.
-const IncomingFields = ({ form, onChange, items, errors = NO_ERRORS }) => (
+// `manufacturers` ([{ id, name }]) are suggested as the user types: a native <datalist>, so any
+// other name can still be typed, and the service creates that manufacturer.
+const IncomingFields = ({ form, onChange, items, manufacturers = EMPTY_LIST, errors = NO_ERRORS }) => {
+  const manufacturerListId = useId();
+  return (
   <>
     <label className="block">
-      <span className={fieldLabelClass}>Item Name</span>
+      <span className={fieldLabelClass}>Item Name<Required /></span>
       <select required value={form.itemId} onChange={(e) => onChange({ itemId: e.target.value })} className={`${fieldInputClass} cursor-pointer`}>
         <option value="">Select Item from Inventory</option>
         {items.map((item) => (<option key={item.id} value={item.id}>{item.name}</option>))}
@@ -89,42 +103,58 @@ const IncomingFields = ({ form, onChange, items, errors = NO_ERRORS }) => (
     </label>
     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
       <label className="block">
-        <span className={fieldLabelClass}>Quantity</span>
+        <span className={fieldLabelClass}>Quantity<Required /></span>
         <input type="number" min="1" step="1" required placeholder="100" value={form.quantity} onChange={(e) => onChange({ quantity: e.target.value })} className={fieldInputClass} />
         <FieldError message={errors.quantity} />
       </label>
       <label className="block">
-        <span className={fieldLabelClass}>Unit Cost ({CURRENCY_SYMBOL})</span>
+        <span className={fieldLabelClass}>Unit Cost ({CURRENCY_SYMBOL})<Required /></span>
         <input type="number" min="0" step="0.01" required placeholder="2.00" value={form.unitCost} onChange={(e) => onChange({ unitCost: e.target.value })} className={fieldInputClass} />
         <FieldError message={errors.unitCost} />
       </label>
     </div>
     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
       <label className="block">
-        <span className={fieldLabelClass}>Transaction Date</span>
+        <span className={fieldLabelClass}>Transaction Date<Required /></span>
         <input type="date" required value={form.date} onChange={(e) => onChange({ date: e.target.value })} className={`${fieldInputClass} cursor-pointer`} />
         <FieldError message={errors.date} />
       </label>
       <label className="block">
-        <span className={fieldLabelClass}>Expiry Date (optional)</span>
+        <span className={fieldLabelClass}>Expiry Date<Optional /></span>
         <input type="date" value={form.expiryDate} onChange={(e) => onChange({ expiryDate: e.target.value })} className={`${fieldInputClass} cursor-pointer`} />
         <FieldError message={errors.expiryDate} />
       </label>
     </div>
     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
       <label className="block">
-        <span className={fieldLabelClass}>Batch Number</span>
-        <input type="text" required placeholder="MS-2025-01" value={form.batchNumber} onChange={(e) => onChange({ batchNumber: e.target.value })} className={fieldInputClass} />
+        <span className={fieldLabelClass}>Batch Number<Required /></span>
+        <input type="text" required maxLength={100} placeholder="MS-2025-01" value={form.batchNumber} onChange={(e) => onChange({ batchNumber: e.target.value })} className={fieldInputClass} />
         <FieldError message={errors.batchNumber} />
       </label>
       <label className="block">
-        <span className={fieldLabelClass}>Supplier</span>
-        <input type="text" required placeholder="e.g. MedSupply" value={form.supplier} onChange={(e) => onChange({ supplier: e.target.value })} className={fieldInputClass} />
+        <span className={fieldLabelClass}>Supplier<Optional /></span>
+        <input type="text" maxLength={150} placeholder="e.g. MedSupply" value={form.supplier} onChange={(e) => onChange({ supplier: e.target.value })} className={fieldInputClass} />
         <FieldError message={errors.supplier} />
       </label>
     </div>
+    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+      <label className="block">
+        <span className={fieldLabelClass}>Manufacturer<Optional /></span>
+        <input type="text" maxLength={150} list={manufacturerListId} autoComplete="off" placeholder="e.g. Nova Pharma" value={form.manufacturer} onChange={(e) => onChange({ manufacturer: e.target.value })} className={fieldInputClass} />
+        <datalist id={manufacturerListId}>
+          {manufacturers.map((manufacturer) => (<option key={manufacturer.id} value={manufacturer.name} />))}
+        </datalist>
+        <FieldError message={errors.manufacturer} />
+      </label>
+      <label className="block">
+        <span className={fieldLabelClass}>Manufacturing Date<Optional /></span>
+        <input type="date" max={form.date || undefined} value={form.manufacturingDate} onChange={(e) => onChange({ manufacturingDate: e.target.value })} className={`${fieldInputClass} cursor-pointer`} />
+        <FieldError message={errors.manufacturingDate} />
+      </label>
+    </div>
   </>
-);
+  );
+};
 
 // `batches` are the item's batches with stock: [{ id, batchNumber, quantity, expiryDate, expiryStatus }].
 // An expired batch is listed but cannot be chosen: expired stock is never issued, only disposed
@@ -233,6 +263,10 @@ const TransactionsPage = () => {
   // never had a transaction can be chosen and an archived item cannot.
   const { data: inventoryItems, reload: reloadInventory } = useAsyncData(getInventoryItemsApi, EMPTY_LIST);
 
+  // Suggestions for the manufacturer input. Reloaded after a receipt, which may add one.
+  const { data: manufacturers, reload: reloadManufacturers } = useAsyncData(getManufacturersApi, EMPTY_LIST);
+  const manufacturerName = (id) => manufacturers.find((manufacturer) => sameId(manufacturer.id, id))?.name ?? '';
+
   // Archived items keep their transactions as history. Those rows are listed but read-only.
   const archivedItemIds = useMemo(
     () => new Set(lookupItems.filter((item) => item.archived).map((item) => String(item.id))),
@@ -315,6 +349,7 @@ const TransactionsPage = () => {
       if (activeTab === type) reload(); else switchTab(type);
       reloadInventory();
       reloadLookups();
+      if (type === INCOMING) reloadManufacturers();
       refreshUnreadCount();
     } catch (err) {
       // The form stays open with everything the user typed, so it can be corrected and resent.
@@ -326,7 +361,7 @@ const TransactionsPage = () => {
 
   const openEditModal = (transaction) => {
     const currentBatchNumber = batchNumber(transaction.batchId);
-    setEditForm(newEditForm(transaction, currentBatchNumber === EMPTY_VALUE ? '' : currentBatchNumber));
+    setEditForm(newEditForm(transaction, currentBatchNumber === EMPTY_VALUE ? '' : currentBatchNumber, manufacturerName(transaction.manufacturerId)));
     clearErrors();
     setEditingTransaction(transaction);
   };
@@ -342,7 +377,10 @@ const TransactionsPage = () => {
     e.preventDefault();
     const common = { type: editForm.type, itemId: editItemId, quantity: toNumber(editForm.quantity), date: editForm.date };
     const payload = editForm.type === INCOMING
-      ? { ...common, batchNumber: editForm.batchNumber.trim(), unitCost: toNumber(editForm.unitCost), expiryDate: editForm.expiryDate || null, supplier: editForm.supplier.trim() }
+      ? {
+        ...common, batchNumber: editForm.batchNumber.trim(), unitCost: toNumber(editForm.unitCost), expiryDate: editForm.expiryDate || null,
+        supplier: editForm.supplier.trim() || null, manufacturer: editForm.manufacturer.trim() || null, manufacturingDate: editForm.manufacturingDate || null,
+      }
       : { ...common, batchId: resolveId(editBatches, editForm.batchId), recipient: editForm.recipient.trim() };
 
     setSaving(true);
@@ -354,6 +392,7 @@ const TransactionsPage = () => {
       if (activeTab === updated.type) reload(); else switchTab(updated.type);
       reloadInventory();
       reloadLookups();
+      reloadManufacturers();
       refreshUnreadCount();
     } catch (err) {
       showSaveError(err, 'Could not update the transaction. Please try again.');
@@ -391,7 +430,10 @@ const TransactionsPage = () => {
       date: incomingForm.date,
       expiryDate: incomingForm.expiryDate || null,
       batchNumber: incomingForm.batchNumber.trim(),
-      supplier: incomingForm.supplier.trim(),
+      // Optional fields left empty are sent as null, never as "".
+      supplier: incomingForm.supplier.trim() || null,
+      manufacturer: incomingForm.manufacturer.trim() || null,
+      manufacturingDate: incomingForm.manufacturingDate || null,
     });
   };
 
@@ -574,7 +616,7 @@ const TransactionsPage = () => {
         <Modal title="Add Incoming Stock" spacing="space-y-4" onClose={() => setOpenModal(null)}>
           <form onSubmit={handleSaveIncoming} className="space-y-3.5 text-xs">
             {formError && <InlineAlert>{formError}</InlineAlert>}
-            <IncomingFields form={incomingForm} onChange={(changes) => setIncomingForm({ ...incomingForm, ...changes })} items={inventoryItems} errors={fieldErrors} />
+            <IncomingFields form={incomingForm} onChange={(changes) => setIncomingForm({ ...incomingForm, ...changes })} items={inventoryItems} manufacturers={manufacturers} errors={fieldErrors} />
             <div className="pt-3 flex items-center justify-end gap-2 border-t">
               <button type="button" onClick={() => setOpenModal(null)} className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-600 font-bold rounded-xl cursor-pointer">Cancel</button>
               <button type="submit" disabled={saving} className="px-4 py-2 bg-[#115e54] hover:bg-[#0e4f47] text-white font-bold rounded-xl cursor-pointer disabled:opacity-50">{saving ? 'Saving...' : 'Save Incoming'}</button>
@@ -618,7 +660,7 @@ const TransactionsPage = () => {
               <FieldError message={fieldErrors.type} />
             </label>
             {editForm.type === INCOMING ? (
-              <IncomingFields form={editForm} onChange={(changes) => setEditForm({ ...editForm, ...changes })} items={inventoryItems} errors={fieldErrors} />
+              <IncomingFields form={editForm} onChange={(changes) => setEditForm({ ...editForm, ...changes })} items={inventoryItems} manufacturers={manufacturers} errors={fieldErrors} />
             ) : (
               <>
                 <OutgoingFields form={editForm} onChange={(changes) => setEditForm({ ...editForm, ...changes })} items={inventoryItems} batches={editBatches} batchesLoading={editBatchesLoading} errors={fieldErrors} keepBatchId={editingTransaction.type === OUTGOING ? editingTransaction.batchId : null} />

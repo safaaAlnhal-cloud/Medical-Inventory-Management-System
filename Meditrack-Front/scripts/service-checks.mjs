@@ -306,10 +306,44 @@ try {
     await rejection(transactions.createIncomingTransactionApi(incoming({ date: '2026-02-31' })), 422, 'date');
     await rejection(transactions.createIncomingTransactionApi(incoming({ expiryDate: 'soon' })), 422, 'expiryDate');
     await rejection(transactions.createIncomingTransactionApi(incoming({ batchNumber: '  ' })), 422, 'batchNumber');
-    await rejection(transactions.createIncomingTransactionApi(incoming({ supplier: '' })), 422, 'supplier');
-    await rejection(transactions.createIncomingTransactionApi(incoming({ batchNumber: 'am-201' })), 409, 'batchNumber');
+    await rejection(transactions.createIncomingTransactionApi(incoming({ supplier: 'a'.repeat(151) })), 422, 'supplier');
+    await rejection(transactions.createIncomingTransactionApi(incoming({ manufacturer: 'a'.repeat(151) })), 422, 'manufacturer');
+    await rejection(transactions.createIncomingTransactionApi(incoming({ manufacturer: '...' })), 422, 'manufacturer');
+    for (const manufacturingDate of ['soon', '2099-01-01']) await rejection(transactions.createIncomingTransactionApi(incoming({ manufacturingDate })), 422, 'manufacturingDate');
+    await rejection(transactions.createIncomingTransactionApi(incoming({ date: '2026-01-10', manufacturingDate: '2026-01-11' })), 422, 'manufacturingDate');
+    await rejection(transactions.createIncomingTransactionApi(incoming({ date: '2026-01-10', expiryDate: '2026-01-10', manufacturingDate: '2026-01-11' })), 422, 'manufacturingDate');
+    // AM-201 (Amoxicillin) is Medica Labs': the same number from Medica Labs, in any spelling, clashes.
+    await rejection(transactions.createIncomingTransactionApi(incoming({ batchNumber: 'am-201', manufacturer: 'MEDICA labs' })), 409, 'batchNumber');
     assert.equal((await inventory.getBatchLookupApi()).length, batchesBefore, 'no batch was created by a rejected request');
     assert.equal((await findItem(2)).quantity, stockBefore);
+  });
+
+  check('incoming: supplier and manufacturer are optional; a manufacturer is found by any spelling or created once', async () => {
+    await signIn(STOREKEEPER);
+    const count = async () => (await manufacturers.getManufacturersApi()).length;
+    const before = await count();
+
+    const bare = await transactions.createIncomingTransactionApi(incoming({ supplier: null, manufacturer: null, manufacturingDate: null }));
+    assert.equal(bare.supplier, null);
+    assert.equal(bare.manufacturerId, null);
+
+    const existing = await transactions.createIncomingTransactionApi(incoming({ batchNumber: 'CHK-2', manufacturer: 'nova  PHARMA', manufacturingDate: '2026-01-01' }));
+    assert.equal(existing.manufacturerId, 1, 'Nova Pharma was found, not created again');
+    assert.equal(existing.manufacturingDate, '2026-01-01');
+    assert.equal(await count(), before);
+
+    const created = await transactions.createIncomingTransactionApi(incoming({ batchNumber: 'CHK-3', manufacturer: 'Brand New Labs' }));
+    assert.equal(await count(), before + 1);
+    assert.ok((await manufacturers.getManufacturersApi({ search: 'brand new' })).some((m) => m.id === created.manufacturerId));
+
+    // The same number is fine from another manufacturer or with none, but not twice from the same one.
+    await transactions.createIncomingTransactionApi(incoming({ batchNumber: 'AM-201', manufacturer: 'Nova Pharma' }));
+    await rejection(transactions.createIncomingTransactionApi(incoming({ batchNumber: 'CHK-1' })), 409, 'batchNumber');
+    // A rejected receipt leaves no new manufacturer behind.
+    await rejection(transactions.createIncomingTransactionApi(incoming({ batchNumber: 'CHK-4', quantity: 0, manufacturer: 'Never Saved Ltd' })), 422, 'quantity');
+    assert.equal(await count(), before + 1);
+    // Search matches the manufacturer name.
+    assert.ok((await transactions.getIncomingTransactionsApi({ search: 'brand new' })).some((tx) => tx.id === created.id));
   });
 
   check('incoming: a unit cost of 0 is allowed, and create and edit apply the same rule', async () => {
@@ -318,8 +352,12 @@ try {
     assert.equal(saved.unitCost, 0);
     const edit = { type: 'incoming', itemId: 2, quantity: 10, date: today, batchNumber: 'CHK-1', expiryDate: null, supplier: 'Check Supplier' };
     await rejection(transactions.updateTransactionApi(saved.id, { ...edit, unitCost: -1 }), 422, 'unitCost');
-    await rejection(transactions.updateTransactionApi(saved.id, { ...edit, unitCost: 4, supplier: ' ' }), 422, 'supplier');
-    assert.equal((await transactions.updateTransactionApi(saved.id, { ...edit, unitCost: 4 })).unitCost, 4);
+    await rejection(transactions.updateTransactionApi(saved.id, { ...edit, unitCost: 4, supplier: 'a'.repeat(151) }), 422, 'supplier');
+    await rejection(transactions.updateTransactionApi(saved.id, { ...edit, unitCost: 4, manufacturingDate: '2099-01-01' }), 422, 'manufacturingDate');
+    const updated = await transactions.updateTransactionApi(saved.id, { ...edit, unitCost: 4, supplier: null, manufacturer: 'Medica Labs' });
+    assert.equal(updated.unitCost, 4);
+    assert.equal(updated.supplier, null);
+    assert.equal(updated.manufacturerId, 2);
   });
 
   check('outgoing: cannot exceed the stock of the batch, and a rejected issue changes nothing', async () => {

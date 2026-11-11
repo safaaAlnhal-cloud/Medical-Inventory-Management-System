@@ -13,7 +13,7 @@ import { seedNotificationState, syncNotifications } from './mockSelectors';
 // sessionStorage, so changes survive a page refresh and reset when the browser tab is closed.
 // Only services may import this module; pages and components never touch it.
 // Bump the version whenever the seed data shape changes, so stale stored copies are dropped.
-const STORAGE_KEY = 'meditrack.mockDb.v7';
+const STORAGE_KEY = 'meditrack.mockDb.v8';
 
 const clone = (value) => JSON.parse(JSON.stringify(value));
 
