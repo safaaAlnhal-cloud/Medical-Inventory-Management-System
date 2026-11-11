@@ -1,6 +1,7 @@
 import { mockBatches } from '../../mockData/batchesMock';
 import { mockCategories } from '../../mockData/categoriesMock';
 import { mockInventoryItems } from '../../mockData/inventoryMock';
+import { mockManufacturers } from '../../mockData/manufacturersMock';
 import { mockTransactions } from '../../mockData/transactionsMock';
 import { mockUsers } from '../../mockData/usersMock';
 import { ACCESS, ROLES, USER_STATUS } from '../../constants/users';
@@ -12,7 +13,7 @@ import { seedNotificationState, syncNotifications } from './mockSelectors';
 // sessionStorage, so changes survive a page refresh and reset when the browser tab is closed.
 // Only services may import this module; pages and components never touch it.
 // Bump the version whenever the seed data shape changes, so stale stored copies are dropped.
-const STORAGE_KEY = 'meditrack.mockDb.v6';
+const STORAGE_KEY = 'meditrack.mockDb.v7';
 
 const clone = (value) => JSON.parse(JSON.stringify(value));
 
@@ -20,6 +21,7 @@ const seed = () => {
   const db = {
     users: clone(mockUsers),
     categories: clone(mockCategories),
+    manufacturers: clone(mockManufacturers),
     items: clone(mockInventoryItems),
     batches: clone(mockBatches),
     transactions: clone(mockTransactions),
@@ -32,7 +34,7 @@ const seed = () => {
 const load = () => {
   try {
     const stored = JSON.parse(sessionStorage.getItem(STORAGE_KEY));
-    return stored?.users && stored?.items && stored?.batches && stored?.transactions ? stored : null;
+    return stored?.users && stored?.manufacturers && stored?.items && stored?.batches && stored?.transactions ? stored : null;
   } catch {
     return null;
   }
