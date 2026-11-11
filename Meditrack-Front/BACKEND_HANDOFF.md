@@ -52,6 +52,7 @@ in the frontend is **planned**; none of it is implemented yet.
 | `src/services/usersApi.js` | Users list and directory, create, update, admin password reset |
 | `src/services/profileApi.js` | The signed-in user's own profile and password |
 | `src/services/categoriesApi.js` | Categories CRUD |
+| `src/services/manufacturersApi.js` | Manufacturers list and search (for the manufacturer autocomplete) |
 | `src/services/inventoryApi.js` | Items: list, archived list, lookups, create, update, archive, restore |
 | `src/services/transactionsApi.js` | Incoming / outgoing transactions: list, create, edit, cancel, batch options |
 | `src/services/notificationsApi.js` | Alerts and their per-user read state |
@@ -333,11 +334,14 @@ supplier); the UI shows "—" for it. These three also appear on each batch insi
   "expiryDate": null, "expiryStatus": null, "createdAt": "2026-11-09T07:00:00.000Z", "read": false }
 ```
 
-### Manufacturer (planned)
+### Manufacturer
 ```json
 { "id": 2, "name": "PharmaCo" }
 ```
 A company that makes the products. Linked to batches and to barcodes, never to an item.
+**Implemented:** the list and search, `GET /manufacturers` (section 4.4), in both mock and API
+mode (`getManufacturersApi` in `src/services/manufacturersApi.js`). Creating a manufacturer from
+the Incoming form is still planned.
 
 ### Barcodes and manufacturers (planned)
 
@@ -884,6 +888,7 @@ A category name is required (`422`, field `name`) and unique, case-insensitive (
 | PUT | `/inventory/:id` | Any signed-in user | Updates `name`, `categoryId`, `unit`, `minQty` only. Stock, batches, costs and the archive state are never changed by it. `409` if the item is archived |
 | PATCH | `/inventory/:id/archive` | Any signed-in user | Archives the item (this is what "Delete" does). No body today; **planned:** `{ "reason" }`, required. Returns the `Item`. `409` while it has stock or if it is already archived |
 | PATCH | `/inventory/:id/restore` | Any signed-in user | Restores an archived item. No body. Returns the `Item`. `409` if it is not archived or an active item has the same name |
+| GET | `/manufacturers?search=` | Any signed-in user | `[{ "id", "name" }]`, alphabetical. Without `search`: every manufacturer (a lookup, like `/inventory/lookup`). With it: names containing the text, case and surrounding spaces ignored, for the autocomplete. `422` (field `search`) if `search` is not text or is longer than 150 characters |
 
 **Planned** endpoints (decisions 19–22):
 
@@ -893,7 +898,6 @@ A category name is required (`422`, field `name`) and unique, case-insensitive (
 | POST | `/inventory/:id/barcodes` | Any signed-in user | Request `{ "barcode", "manufacturer" }` (manufacturer name, required; created if new) → `201` with the `Item`. `409` if the barcode is already used by any item (field `barcode`) or the item is archived |
 | DELETE | `/inventory/:id/barcodes/:barcodeId` | Any signed-in user | → `200` with the `Item`. `404` if the barcode is not this item's; `409` if the item is archived |
 | GET | `/inventory/:id/archive-history` | Any signed-in user | Archive records, newest first (shape in "Archived items", section 3). `[]` if never archived |
-| GET | `/manufacturers?search=` | Any signed-in user | `[{ "id", "name" }]`, alphabetical. Without `search`: every manufacturer (a lookup, like `/inventory/lookup`). With it: names containing the text, for the autocomplete |
 
 Changes to existing endpoints (planned):
 

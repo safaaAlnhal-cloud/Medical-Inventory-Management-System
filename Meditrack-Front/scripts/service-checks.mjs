@@ -62,6 +62,7 @@ try {
   const users = await load('services/usersApi.js');
   const categories = await load('services/categoriesApi.js');
   const profile = await load('services/profileApi.js');
+  const manufacturers = await load('services/manufacturersApi.js');
   const { resolveDateRange } = await load('utils/reports.js');
   const { toISODate } = await load('utils/dates.js');
 
@@ -109,6 +110,17 @@ try {
     await rejection(categories.createCategoryApi({ name: 'Nope' }), 403);
     await rejection(reports.getReportApi('summary', sixMonths), 403);
     await rejection(dashboard.getStockMovementApi(), 403);
+  });
+
+  check('manufacturers: the whole list alphabetically, a search by part of the name, and too long a search is 422', async () => {
+    await signIn(STOREKEEPER);
+    assert.deepEqual((await manufacturers.getManufacturersApi()).map((manufacturer) => manufacturer.name),
+      ['CottonLine', 'Medica Labs', 'Nova Pharma', 'PureFluids Co.', 'SafeCare Industries']);
+    assert.deepEqual(await manufacturers.getManufacturersApi({ search: '  CARE ' }), [{ id: 3, name: 'SafeCare Industries' }]);
+    assert.deepEqual(await manufacturers.getManufacturersApi({ search: 'xyz' }), []);
+    await rejection(manufacturers.getManufacturersApi({ search: 'a'.repeat(151) }), 422, 'search');
+    signOut();
+    await rejection(manufacturers.getManufacturersApi(), 401);
   });
 
   check('storekeeper: shared services work and the profile is always their own', async () => {
