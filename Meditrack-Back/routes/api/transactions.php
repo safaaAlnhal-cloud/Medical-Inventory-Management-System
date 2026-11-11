@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\Transactions\IncomingTransactionController;
 use Illuminate\Support\Facades\Route;
 
 // Owner: Developer A. Phases 2-4. BACKEND_HANDOFF.md section 4.5.
@@ -15,6 +16,7 @@ use Illuminate\Support\Facades\Route;
 // GET   /transactions/{transaction}/revisions
 
 Route::prefix('transactions')->group(function () {
-    //
+    Route::get('/incoming', [IncomingTransactionController::class, 'index']);
+    Route::post('/incoming', [IncomingTransactionController::class, 'store']);
 });
 
