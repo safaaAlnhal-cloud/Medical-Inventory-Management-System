@@ -13,10 +13,10 @@ use App\Models\ItemBarcode;
 use App\Models\Manufacturer;
 use App\Models\Transaction;
 use App\Models\User;
+use App\Services\StockService;
 use Illuminate\Support\Carbon;
 use Illuminate\Database\Seeder;
 use Illuminate\Support\Facades\DB;
-use RuntimeException;
 
 /**
  * The frontend's mock data (Meditrack-Front/src/mockData), so the app shows the same content in
@@ -277,40 +277,14 @@ class DemoDataSeeder extends Seeder
     }
 
     /**
-     * TEMPORARY (phase 1). Fills the cached batches.quantity and items.avg_unit_cost by replaying
-     * each item's active transactions in recorded order. Phase 5 replaces this with
-     * StockService::recalculateItem(), the one place that logic will live.
+     * Fills the stored batches.quantity and items.avg_unit_cost with the same code every
+     * transaction action uses, so the demo figures are exactly what the app would compute.
      */
     private function recalculateStock(): void
     {
+        $stock = app(StockService::class);
         foreach (Item::all() as $item) {
-            $stock = 0;
-            $average = 0.0;
-            $batchQuantities = [];
-
-            $transactions = $item->transactions()->active()->inRecordedOrder()->get();
-            foreach ($transactions as $transaction) {
-                $quantity = $transaction->quantity;
-                $batchQuantities[$transaction->batch_id] ??= 0;
-
-                if ($transaction->isIncoming()) {
-                    $average = ($stock * $average + $quantity * (float) $transaction->unit_cost) / ($stock + $quantity);
-                    $stock += $quantity;
-                    $batchQuantities[$transaction->batch_id] += $quantity;
-                } else {
-                    $stock -= $quantity;
-                    $batchQuantities[$transaction->batch_id] -= $quantity;
-                }
-
-                if ($batchQuantities[$transaction->batch_id] < 0) {
-                    throw new RuntimeException("Demo data leaves batch {$transaction->batch_id} negative.");
-                }
-            }
-
-            foreach ($batchQuantities as $batchId => $quantity) {
-                Batch::whereKey($batchId)->update(['quantity' => $quantity]);
-            }
-            $item->forceFill(['avg_unit_cost' => round($average, 4)])->save();
+            $stock->recalculate($item);
         }
     }
 
