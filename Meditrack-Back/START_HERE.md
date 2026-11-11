@@ -65,7 +65,7 @@ npm run dev                   # http://localhost:5173
 | الخدمة | تبنيها | تستعملها | حالتها |
 |---|---|---|---|
 | `ManufacturerService::resolve($name)` | B | A في Incoming، وB في ربط الباركود | **جاهزة ومختبرة**. استدعيها داخل `DB::transaction` الخاص بالعملية |
-| `ManufacturerService::search($search)` | B | `GET /manufacturers` | المرحلة 2 |
+| `ManufacturerService::search($search)` | B | `GET /manufacturers` | **جاهزة ومختبرة**، ومعها `getManufacturersApi` في الواجهة |
 | `NotificationService::syncItem($item)` / `syncUser($user)` / `syncAll()` | B | A في نهاية StockService، وB في الأرشفة والمستخدمين | **فارغة حتى المرحلة 4**، لكن يمكن استدعاؤها من الآن دون أي خطأ |
 | `ReportService::build($type, $filters, $page, $pageSize)` → `ReportResult` | A | B في التصدير | المرحلة 5. شكل `ReportResult` و`ReportFilters` ثابت الآن في `app/Reports` |
 

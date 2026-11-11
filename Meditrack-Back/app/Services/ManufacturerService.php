@@ -5,7 +5,6 @@ namespace App\Services;
 use App\Models\Manufacturer;
 use Illuminate\Support\Collection;
 use Illuminate\Validation\ValidationException;
-use LogicException;
 
 /**
  * SHARED CONTRACT. resolve() was built with the shared foundation, so Developer A can use it in
@@ -58,6 +57,11 @@ class ManufacturerService
      */
     public function search(?string $search): Collection
     {
-        throw new LogicException('ManufacturerService::search() is not built yet (phase 2, Developer B).');
+        $search = trim((string) $search);
+
+        return Manufacturer::query()
+            ->when($search !== '', fn ($query) => $query->where('name', 'like', "%{$search}%"))
+            ->orderBy('name')
+            ->get();
     }
 }
