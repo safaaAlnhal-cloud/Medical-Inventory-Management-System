@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Middleware\EnsureAccountCanUseSystem;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 
@@ -28,8 +29,9 @@ use Illuminate\Support\Facades\Route;
 // Public routes (login) and the auth routes, which set their own middleware.
 require __DIR__.'/api/auth.php';
 
-Route::middleware('auth:sanctum')->group(function () {
-    // Phase 2 (B): the middleware that rejects tokens of inactive or expired accounts goes here.
+// auth:sanctum: a valid token is required (401 without one).
+// EnsureAccountCanUseSystem: the token's account must still be active and not expired (401).
+Route::middleware(['auth:sanctum', EnsureAccountCanUseSystem::class])->group(function () {
 
     // Developer A
     require __DIR__.'/api/batches.php';

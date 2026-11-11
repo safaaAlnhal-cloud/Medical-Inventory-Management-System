@@ -103,6 +103,19 @@ try {
     await rejection(auth.loginApi({ email: 'mahmoud@medcenter.ps', password: 'store123' }), 403);
   });
 
+  check('account expiry: works on its last day, then login is 403 and an open session is 401', async () => {
+    const { getDb } = await load('services/mock/mockDb.js');
+    const omar = getDb().users.find((user) => user.email === STOREKEEPER.email);
+    omar.accountExpiresOn = today;
+    await signIn(STOREKEEPER);
+    await users.getUserDirectoryApi();
+
+    omar.accountExpiresOn = '2000-01-01';
+    const sessionError = await rejection(users.getUserDirectoryApi(), 401);
+    assert.equal(sessionError.message, 'This account expired on 2000-01-01. Please contact an administrator.');
+    await rejection(auth.loginApi(STOREKEEPER), 403);
+  });
+
   check('storekeeper: admin-only services are rejected with 403', async () => {
     await signIn(STOREKEEPER);
     await rejection(users.getUsersApi(), 403);

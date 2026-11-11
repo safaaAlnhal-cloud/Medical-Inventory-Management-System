@@ -1,4 +1,5 @@
-import { ACCESS, normalizeRole, USER_STATUS } from '../constants/users';
+import { ACCESS, accountExpiredMessage, isAccountExpired, normalizeRole, USER_STATUS } from '../constants/users';
+import { toISODate } from '../utils/dates';
 import { http } from './apiAxios';
 import { ApiError } from './apiError';
 import { commit, createMockToken, requireCurrentUser } from './mock/mockDb';
@@ -12,17 +13,19 @@ const mapSession = (dto) => ({ token: dto.token, user: mapSessionUser(dto.user) 
 // Returns { token, user: { id, name, email, role } }. The password is never part of the result.
 // MOCK ONLY: the mock compares plain-text demo passwords and issues an unsigned token. That is
 // a development stand-in, not authentication; the backend verifies credentials and signs tokens.
-export const loginApi = async ({ email, password }) => {
+// `remember` ("Remember me") makes the token last 30 days instead of 24 hours.
+export const loginApi = async ({ email, password, remember = false }) => {
   const dto = await request({
     delay: 400,
     skipAuthHandling: true,
     access: ACCESS.PUBLIC,
-    api: () => http.post('/auth/login', { email, password }, { skipAuthHandling: true }),
+    api: () => http.post('/auth/login', { email, password, remember: Boolean(remember) }, { skipAuthHandling: true }),
     mock: (db) => {
       const wanted = String(email ?? '').trim().toLowerCase();
       const user = db.users.find((candidate) => candidate.email.toLowerCase() === wanted && candidate.password === password);
       if (!user) throw new ApiError('Invalid email or password.', { status: 401 });
       if (user.status !== USER_STATUS.ACTIVE) throw new ApiError('This account is inactive. Please contact an administrator.', { status: 403 });
+      if (isAccountExpired(user, toISODate())) throw new ApiError(accountExpiredMessage(user), { status: 403 });
       user.lastActiveAt = new Date().toISOString();
       commit();
       return { token: createMockToken(user.id), user };
