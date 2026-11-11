@@ -37,7 +37,7 @@ const Login = () => {
     setLoading(true);
 
     try {
-      const session = await loginApi({ email: formData.email, password: formData.password });
+      const session = await loginApi({ email: formData.email, password: formData.password, remember: formData.rememberMe });
       login(session, { remember: formData.rememberMe });
 
       // Return to the page the user was sent here from, but only if their role can open it.

@@ -23,3 +23,11 @@ export const normalizeRole = (value) => {
 };
 
 export const getHomePath = (role) => HOME_PATHS[role] ?? '/login';
+
+// accountExpiresOn ('YYYY-MM-DD' or null) is the last day the account works, so it has expired
+// once today is after that day. The admin never expires. Same rule as User::isAccountExpired().
+// `today` is 'YYYY-MM-DD'; the two dates compare correctly as plain text.
+export const isAccountExpired = (user, today) =>
+  user.role !== ROLES.ADMIN && Boolean(user.accountExpiresOn) && today > user.accountExpiresOn;
+
+export const accountExpiredMessage = (user) => `This account expired on ${user.accountExpiresOn}. Please contact an administrator.`;

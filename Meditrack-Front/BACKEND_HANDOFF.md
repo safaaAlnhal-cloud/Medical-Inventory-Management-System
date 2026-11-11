@@ -781,17 +781,30 @@ with a back-dated transaction.
 
 `POST /auth/login` request: `{ "email": "<email>", "password": "<password>", "remember": false }`
 
-`remember` (**planned** in the frontend: today it sends only `email` and `password`) is the
-"Remember me" checkbox. It sets the token lifetime: 30 days when `true`, 24 hours when `false`
-or missing.
+`remember` (**implemented**) is the "Remember me" checkbox. It sets the token lifetime: 30 days
+when `true`, 24 hours when `false` or missing.
 
 Response `200`:
 ```json
 { "token": "<sanctum token>", "user": { "id": 1, "name": "Sara Ahmed", "email": "sara@medcenter.ps", "role": "admin" } }
 ```
-Errors: `401` wrong email or password; `403` account is inactive; **planned:** `403` account
-has expired ("This account expired on 2026-11-14. Please contact an administrator.").
-Inactive and expired users must not be able to log in.
+Errors (**implemented**, backend and mock):
+
+| Case | Status | `message` |
+|---|---|---|
+| Missing email or password, or not an email | `422` | per field (`errors.email`, `errors.password`) |
+| Unknown email or wrong password | `401` | "Invalid email or password." (the same for both) |
+| Account is inactive | `403` | "This account is inactive. Please contact an administrator." |
+| Account has expired | `403` | "This account expired on 2026-11-14. Please contact an administrator." |
+| More than 5 attempts a minute from one address | `429` | "Too Many Attempts." |
+
+The inactive and expired checks run only after the password is right, so only the account's
+owner learns its state. A successful login updates the user's `lastActiveAt`.
+
+**Implemented:** a token whose account is later deactivated or expires gets `401` on every
+endpoint ("This account has been deactivated. Please contact an administrator." or the expired
+message above), so the frontend signs that user out. `POST /auth/logout` still works for them.
+`POST /auth/logout` revokes only the token it is sent with and answers `204`.
 
 **Backend must:** store passwords hashed, sign and expire tokens, rate-limit login, and return the
 same `401` message for an unknown email and a wrong password.
@@ -1377,8 +1390,9 @@ be sent without the UI.
 7. **Cancelling.** Never delete a transaction; enforce the rules in "Cancelled transactions".
 8. **Notifications.** Generate the alerts in section 4.6, store read state per user, show account
    alerts only to their audience and return every list in priority order (planned).
-9. **Accounts (planned).** Refuse login (`403`) and every request (`401`) for an expired account;
-   never let the admin account expire.
+9. **Accounts.** Refuse login (`403`) and every request (`401`) for an expired account; never let
+   the admin account expire (implemented). Setting `accountExpiresOn` from the Users page is
+   planned (section 4.2).
 10. **Barcodes and manufacturers (planned).** Keep every barcode unique system-wide, block barcode
     changes on archived items, never create a duplicate manufacturer by spelling, and keep batch
     numbers unique per item and manufacturer.

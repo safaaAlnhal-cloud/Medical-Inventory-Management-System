@@ -4,7 +4,8 @@ import { mockInventoryItems } from '../../mockData/inventoryMock';
 import { mockManufacturers } from '../../mockData/manufacturersMock';
 import { mockTransactions } from '../../mockData/transactionsMock';
 import { mockUsers } from '../../mockData/usersMock';
-import { ACCESS, ROLES, USER_STATUS } from '../../constants/users';
+import { ACCESS, accountExpiredMessage, isAccountExpired, ROLES, USER_STATUS } from '../../constants/users';
+import { toISODate } from '../../utils/dates';
 import { ApiError } from '../apiError';
 import { getStoredToken } from '../authStorage';
 import { seedNotificationState, syncNotifications } from './mockSelectors';
@@ -90,6 +91,8 @@ export const requireCurrentUser = () => {
   if (!user) throw new ApiError('Your session has expired. Please sign in again.', { status: 401 });
   // A deactivated account loses its session: 401, so the frontend signs the user out.
   if (user.status !== USER_STATUS.ACTIVE) throw new ApiError('This account has been deactivated. Please contact an administrator.', { status: 401 });
+  // An expired account loses its session the same way (backend: EnsureAccountCanUseSystem).
+  if (isAccountExpired(user, toISODate())) throw new ApiError(accountExpiredMessage(user), { status: 401 });
   return user;
 };
 
