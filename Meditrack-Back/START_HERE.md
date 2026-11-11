@@ -50,7 +50,7 @@ npm run dev                   # http://localhost:5173
 | **قاعدة البيانات** | `database/migrations` | 14 ملف migration، والتصميم مشروح في القسم 9 من الـ handoff. **مغلقة:** أي تغيير = migration جديد |
 | **Models** | `app/Models` | العلاقات، والـ casts، ودوال مثل `isArchived()` و`canUseSystem()`، والـ scopes مثل `Item::active()` |
 | **Enums** | `app/Enums` | كل القيم الثابتة: الأدوار، والوحدات، وأنواع العمليات والتنبيهات والتقارير |
-| **بيانات تجريبية** | `database/seeders` | مطابقة لأرقام الـ Mock تمامًا. فيها كود مؤقت (`recalculateStock`) يُستبدل بـ StockService في المرحلة 2 |
+| **بيانات تجريبية** | `database/seeders` | مطابقة لأرقام الـ Mock تمامًا. الكميات والمتوسطات تُحسب بـ `StockService`، نفس كود العمليات |
 | **Factories** | `database/factories` | لإنشاء بيانات في الاختبارات: `Item::factory()->archived()->create()` |
 | **الأخطاء** | `bootstrap/app.php`، `app/Exceptions/ConflictException.php` | كل خطأ API بشكل `{ message, errors }` الذي تنتظره الواجهة. للتعارض: `throw ConflictException::on('field', '...')` → 409 |
 | **الدخول** | Sanctum | tokens جاهزة، والـ endpoints نفسها مهمة B في المرحلة 2 |
@@ -116,5 +116,4 @@ git push -u origin a/incoming
 ## 6. أشياء مؤقتة يجب ألا تُنسى (المرحلة 6)
 
 - `GET /api/user` في `routes/api.php`: مسار تجريبي لـ Sanctum، يُحذف عندما يُبنى `/auth/me`.
-- `recalculateStock()` في `DemoDataSeeder`: يُستبدل بـ StockService (مهمة A في المرحلة 2).
 - تحديثات Symfony الأمنية (`composer audit`).
