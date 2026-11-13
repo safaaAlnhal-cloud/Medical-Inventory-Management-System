@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\Transactions\DisposalTransactionController;
 use App\Http\Controllers\Transactions\IncomingTransactionController;
 use App\Http\Controllers\Transactions\OutgoingTransactionController;
 use Illuminate\Support\Facades\Route;
@@ -21,5 +22,6 @@ Route::prefix('transactions')->group(function () {
     Route::post('/incoming', [IncomingTransactionController::class, 'store']);
     Route::get('/outgoing', [OutgoingTransactionController::class, 'index']);
     Route::post('/outgoing', [OutgoingTransactionController::class, 'store']);
+    Route::post('/disposal', [DisposalTransactionController::class, 'store']);
 });
 

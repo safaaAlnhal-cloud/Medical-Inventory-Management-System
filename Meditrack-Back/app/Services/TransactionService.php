@@ -20,6 +20,9 @@ use Illuminate\Validation\ValidationException;
  */
 class TransactionService
 {
+    /** How a disposal is named on screen (OUTGOING_REASON_LABELS in the frontend); search matches it. */
+    private const DISPOSAL_LABEL = 'Expired Stock Disposal';
+
     public function __construct(
         private readonly StockService $stock,
         private readonly ManufacturerService $manufacturers,
@@ -111,34 +114,63 @@ class TransactionService
      */
     public function recordIssue(array $data, User $recordedBy): Transaction
     {
-        return DB::transaction(function () use ($data, $recordedBy) {
+        return $this->recordOutgoing($data, $recordedBy, OutgoingReason::Issue);
+    }
+
+    /**
+     * POST /transactions/disposal: records that expired stock was removed from its batch.
+     *
+     * Stored as an outgoing transaction with reason expired_disposal and no recipient, so it
+     * follows the same batch arithmetic as an issue but is never counted as consumption.
+     * BACKEND_HANDOFF.md, "Batch expiry and disposal".
+     *
+     * @param  array<string, mixed>  $data  validated by StoreDisposalTransactionRequest
+     *
+     * @throws ValidationException  422 on itemId, batchId, quantity or date
+     */
+    public function recordDisposal(array $data, User $recordedBy): Transaction
+    {
+        return $this->recordOutgoing($data, $recordedBy, OutgoingReason::ExpiredDisposal);
+    }
+
+    /**
+     * An issue and a disposal share every step. Only what the batch must be, how much it can
+     * give and the earliest date differ:
+     *
+     *   issue:    a batch that has not expired, up to its available quantity
+     *   disposal: a batch that has expired, up to its expired quantity, dated after its expiry
+     */
+    private function recordOutgoing(array $data, User $recordedBy, OutgoingReason $reason): Transaction
+    {
+        return DB::transaction(function () use ($data, $recordedBy, $reason) {
             $item = $this->stock->lockItems($data['itemId'])->first();
             $this->ensureItemIsActive($item);
 
-            // Read after the item is locked, so nobody else issues from it meanwhile.
+            // Read after the item is locked, so nobody else takes stock from it meanwhile.
             $batch = Batch::with('receipt')->where('item_id', $item->id)->find($data['batchId']);
             if ($batch === null || $batch->receipt === null || $batch->quantity <= 0) {
                 $this->invalid('batchId', 'The selected batch has no stock for this item.');
             }
-            // By today's date, not the transaction's: back-dating cannot issue expired stock.
-            if ($batch->isExpired()) {
-                $this->invalid('batchId', "Batch {$batch->batch_number} expired on {$this->day($batch->expiry_date)} and cannot be issued. Record an expired stock disposal for it instead.");
-            }
-            if ($data['quantity'] > $batch->availableQuantity()) {
-                $this->invalid('quantity', "Only {$batch->availableQuantity()} available in batch {$batch->batch_number}.");
-            }
+
+            $disposal = $reason === OutgoingReason::ExpiredDisposal;
+            $disposal ? $this->ensureCanDispose($batch, $data) : $this->ensureCanIssue($batch, $data);
+
             if ($batch->receipt->date->greaterThan($data['date'])) {
                 $this->invalid('date', "The date cannot be earlier than {$this->day($batch->receipt->date)}, when batch {$batch->batch_number} was received.");
+            }
+            if ($disposal && $batch->expiry_date->greaterThanOrEqualTo($data['date'])) {
+                $this->invalid('date', "The disposal date must be after {$this->day($batch->expiry_date)}, when batch {$batch->batch_number} expired.");
             }
 
             $transaction = Transaction::create([
                 'type' => TransactionType::Outgoing,
-                'reason' => OutgoingReason::Issue,
+                'reason' => $reason,
                 'item_id' => $item->id,
                 'batch_id' => $batch->id,
                 'quantity' => $data['quantity'],
                 'unit_cost' => $item->avg_unit_cost,
-                'recipient' => $data['recipient'],
+                // A disposal has no recipient: its reason says where the stock went.
+                'recipient' => $disposal ? null : $data['recipient'],
                 'date' => $data['date'],
                 'recorded_by' => $recordedBy->id,
             ]);
@@ -147,6 +179,27 @@ class TransactionService
 
             return $transaction->setRelation('batch', $batch);
         });
+    }
+
+    /** Expiry is judged by today's date, not the transaction's: back-dating cannot issue expired stock. */
+    private function ensureCanIssue(Batch $batch, array $data): void
+    {
+        if ($batch->isExpired()) {
+            $this->invalid('batchId', "Batch {$batch->batch_number} expired on {$this->day($batch->expiry_date)} and cannot be issued. Record an expired stock disposal for it instead.");
+        }
+        if ($data['quantity'] > $batch->availableQuantity()) {
+            $this->invalid('quantity', "Only {$batch->availableQuantity()} available in batch {$batch->batch_number}.");
+        }
+    }
+
+    private function ensureCanDispose(Batch $batch, array $data): void
+    {
+        if (! $batch->isExpired()) {
+            $this->invalid('batchId', "Batch {$batch->batch_number} has not expired. Only expired stock can be disposed of.");
+        }
+        if ($data['quantity'] > $batch->expiredQuantity()) {
+            $this->invalid('quantity', "Only {$batch->expiredQuantity()} expired in batch {$batch->batch_number} awaiting disposal.");
+        }
     }
 
     /**
@@ -187,6 +240,20 @@ class TransactionService
             ->values();
     }
 
+    /**
+     * GET /inventory/batches/lookup: every batch ever received, so any transaction can show its
+     * batch number. Batches that are used up, whose receipt was cancelled or whose item is
+     * archived are kept: their old transactions still point at them.
+     *
+     * @return Collection<int, Batch>
+     */
+    public function batchLookup(): Collection
+    {
+        return Batch::query()
+            ->orderBy('id')
+            ->get(['id', 'item_id', 'batch_number', 'manufacturer_id']);
+    }
+
     private function ensureItemIsActive(Item $item): void
     {
         if ($item->isArchived()) {
@@ -225,13 +292,18 @@ class TransactionService
         }
     }
 
-    /** search: item name, batch number, supplier, recipient, manufacturer, the recorder's name. */
+    /**
+     * search: item name, batch number, supplier, recipient, manufacturer, the recorder's name,
+     * and for disposals their label "Expired Stock Disposal" (so "disposal" finds them all).
+     */
     private function whereMatches(Builder $query, string $search): void
     {
         $like = '%'.addcslashes($search, '%_\\').'%';
+        $matchesDisposalLabel = str_contains(mb_strtolower(self::DISPOSAL_LABEL), mb_strtolower($search));
 
         $query->where(fn (Builder $q) => $q
             ->where('recipient', 'like', $like)
+            ->when($matchesDisposalLabel, fn (Builder $q) => $q->orWhere('reason', OutgoingReason::ExpiredDisposal))
             ->orWhereHas('item', fn (Builder $q) => $q->where('name', 'like', $like))
             ->orWhereHas('recorder', fn (Builder $q) => $q->where('name', 'like', $like))
             ->orWhereHas('batch', fn (Builder $q) => $q

@@ -900,7 +900,7 @@ A category name is required (`422`, field `name`) and unique, case-insensitive (
 |---|---|---|---|
 | GET | `/inventory?search=` | Any signed-in user | Returns `Item[]`, **active items only**. `search` matches name, category name, unit, batch number |
 | GET | `/inventory/archived?search=` | Any signed-in user | Returns `Item[]`, **archived items only**, most recently archived first. Same search fields |
-| GET | `/inventory/batches/lookup` | Any signed-in user | Returns `[{ "id", "itemId", "batchNumber" }]` for **every** batch ever received, including used-up ones. Used to show the batch number for a `batchId` |
+| GET | `/inventory/batches/lookup` | Any signed-in user | Returns `[{ "id", "itemId", "batchNumber", "manufacturerId" }]` for **every** batch ever received, including used-up ones, those whose receipt was cancelled and those of archived items, ordered by `id`. Used to show the batch number for a `batchId`. **Implemented** (backend) |
 | GET | `/inventory/lookup` | Any signed-in user | Returns `[{ "id", "name", "unit", "archived" }]` for **all** items, including archived ones, so old transactions can still show the item name |
 | POST | `/inventory` | Any signed-in user | Creates an item |
 | PUT | `/inventory/:id` | Any signed-in user | Updates `name`, `categoryId`, `unit`, `minQty` only. Stock, batches, costs and the archive state are never changed by it. `409` if the item is archived |
@@ -922,7 +922,8 @@ Changes to existing endpoints (planned):
 - `PATCH /inventory/:id/archive` takes `{ "reason" }` (required, see "Archived items").
 - `search` on `/inventory` and `/inventory/archived` also matches barcodes, manufacturer names and
   `activeIngredient`.
-- `/inventory/batches/lookup` rows also carry `manufacturerId`.
+- `/inventory/batches/lookup` rows also carry `manufacturerId`. **Implemented** (backend); the
+  frontend does not read it yet.
 
 There is no `DELETE /inventory/:id`: items are never removed. All rules are in "Archived items"
 in section 3.
@@ -1051,6 +1052,14 @@ enforce these three rules (it accepts any number above 0 and any date); the back
 Returns `201` with the saved `Transaction`: `type: "outgoing"`, `reason: "expired_disposal"`,
 `recipient: null`, and `unitCost` set from the item's Average Cost. It is listed by
 `GET /transactions/outgoing`, where `search` also matches "expired stock disposal".
+
+- **Implemented** (backend and mock): `POST /transactions/disposal`. It shares every step with
+  an issue (`TransactionService::recordOutgoing`); only the batch rule (expired), the limit
+  (`expiredQuantity`) and the earliest date (after the expiry date) differ. A `recipient` or
+  `unitCost` in the request is ignored. `search` matches any part of the label, case-insensitive
+  ("disposal", "expired stock"), and finds disposals only. An archived item is `422` on `itemId`.
+  The Dispose button (Inventory page) reads its batches from `GET /inventory/:id`, so it works in
+  API mode once that endpoint exists.
 
 `PUT /transactions/:id` edits a transaction. The request carries the full set of fields for the
 type being saved:
