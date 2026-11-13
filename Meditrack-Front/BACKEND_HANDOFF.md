@@ -1052,6 +1052,14 @@ Returns `201` with the saved `Transaction`: `type: "outgoing"`, `reason: "expire
 `recipient: null`, and `unitCost` set from the item's Average Cost. It is listed by
 `GET /transactions/outgoing`, where `search` also matches "expired stock disposal".
 
+- **Implemented** (backend and mock): `POST /transactions/disposal`. It shares every step with
+  an issue (`TransactionService::recordOutgoing`); only the batch rule (expired), the limit
+  (`expiredQuantity`) and the earliest date (after the expiry date) differ. A `recipient` or
+  `unitCost` in the request is ignored. `search` matches any part of the label, case-insensitive
+  ("disposal", "expired stock"), and finds disposals only. An archived item is `422` on `itemId`.
+  The Dispose button (Inventory page) reads its batches from `GET /inventory/:id`, so it works in
+  API mode once that endpoint exists.
+
 `PUT /transactions/:id` edits a transaction. The request carries the full set of fields for the
 type being saved:
 ```json
