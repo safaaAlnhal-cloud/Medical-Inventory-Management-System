@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\Transactions\IncomingTransactionController;
+use App\Http\Controllers\Transactions\OutgoingTransactionController;
 use Illuminate\Support\Facades\Route;
 
 // Owner: Developer A. Phases 2-4. BACKEND_HANDOFF.md section 4.5.
@@ -18,5 +19,7 @@ use Illuminate\Support\Facades\Route;
 Route::prefix('transactions')->group(function () {
     Route::get('/incoming', [IncomingTransactionController::class, 'index']);
     Route::post('/incoming', [IncomingTransactionController::class, 'store']);
+    Route::get('/outgoing', [OutgoingTransactionController::class, 'index']);
+    Route::post('/outgoing', [OutgoingTransactionController::class, 'store']);
 });
 

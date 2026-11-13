@@ -502,6 +502,58 @@ export const getTransactionBatchOptionsApi = async (id, { itemId } = {}) => {
   });
 };
 
+// MOCK BUSINESS LOGIC. The batches of an item that hold stock, in the order the Outgoing form
+// lists them (the backend's TransactionService::batchOptions):
+//   1. usable batches of `manufacturerId`, when one is chosen
+//   2. the other usable batches
+//   3. expired batches (quantity 0): listed so the form can say why they cannot be issued
+// Within each group the nearest expiry comes first (first expiry, first out); batches that
+// never expire come after them.
+const selectItemBatchOptions = (db, itemId, manufacturerId) => {
+  const item = db.items.find((candidate) => candidate.id === itemId);
+  if (!item) throw new ApiError('The requested record was not found.', { status: 404 });
+  if (item.archived) return [];
+
+  const manufacturerOf = new Map(db.batches.map((batch) => [batch.id, batch.manufacturerId ?? null]));
+  const group = (batch) => {
+    if (batch.expiryStatus === EXPIRY_STATUS.EXPIRED) return 2;
+    return manufacturerId != null && batch.manufacturerId === manufacturerId ? 0 : 1;
+  };
+  return selectItem(db, item).batches
+    .map((batch) => ({
+      id: batch.id,
+      batchNumber: batch.batchNumber,
+      quantity: batch.availableQuantity,
+      expiryDate: batch.expiryDate,
+      expiryStatus: batch.expiryStatus,
+      manufacturerId: manufacturerOf.get(batch.id),
+    }))
+    .sort((a, b) => group(a) - group(b)
+      || (a.expiryDate === null) - (b.expiryDate === null)
+      || (a.expiryDate ?? '').localeCompare(b.expiryDate ?? '')
+      || a.id - b.id);
+};
+
+// The batch list of the Outgoing form: [{ id, batchNumber, quantity, expiryDate, expiryStatus,
+// manufacturerId }]. `quantity` is what can be issued (0 for an expired batch). With
+// `manufacturerId`, that manufacturer's batches come first; the order is the service's, so the
+// form never sorts. An archived item has none.
+export const getItemBatchOptionsApi = async (itemId, { manufacturerId } = {}) => {
+  const dtos = await request({
+    delay: 100,
+    api: () => http.get(`/inventory/${itemId}/batch-options`, { params: { manufacturerId: manufacturerId ?? undefined } }),
+    mock: (db) => selectItemBatchOptions(db, itemId, manufacturerId ?? null),
+  });
+  return dtos.map((dto) => ({
+    id: dto.id,
+    batchNumber: dto.batchNumber,
+    quantity: Number(dto.quantity) || 0,
+    expiryDate: dto.expiryDate ?? null,
+    expiryStatus: dto.expiryStatus ?? null,
+    manufacturerId: dto.manufacturerId ?? null,
+  }));
+};
+
 // Marks the transaction as cancelled (it is never deleted) and resolves with the updated record.
 // Fails with 409 if it is already cancelled, or if it is an incoming transaction whose batch
 // has stock issued from it.
