@@ -394,7 +394,11 @@ page of their own:
   the batch list then shows that manufacturer's available batches first, nearest expiry first,
   followed by the other available batches; the user may still pick any batch. The order comes
   from the backend (`manufacturerId` on the batch-options endpoints, section 4.5), because the
-  frontend never sorts. The first batch in the list is preselected.
+  frontend never sorts. The first batch in the list is preselected. **Implemented** (backend,
+  mock and form): choosing the manufacturer by hand, in the Outgoing form's optional Manufacturer
+  field, which lists only the manufacturers with usable stock of the item. If the chosen batch is
+  from another manufacturer the form shows a note, without blocking the save: the batch is what is
+  recorded. The scan itself is planned (it fills the same two fields).
 
 ### Average Cost and Unit Cost
 
@@ -1004,6 +1008,9 @@ Outgoing form: `itemId` *, `batchId` *, `quantity` *, `date` *, `recipient` * (n
 - The request has no `unitCost`: the backend reads the item's current `avgUnitCost`, stores it
   as the transaction's `unitCost`, and returns it in the response.
 - The item's Average Cost does not change.
+- **Implemented** (backend, mock and form): `GET` and `POST /transactions/outgoing`. All the
+  `422` rules of the table below apply, each on its field, and an expired batch is refused by
+  today's date, whatever the transaction's date.
 
 Both return `201` with the saved `Transaction`.
 
@@ -1066,10 +1073,18 @@ from as an outgoing transaction of `itemId`:
 `quantity` is what is available **to this transaction**: its own current quantity counts as
 available again, the batch it received itself is left out, and so are batches received after it
 was recorded. The edit form uses it for the batch list, so the UI never calculates stock.
-**Planned:** each row also carries `manufacturerId`. An optional `&manufacturerId=` puts that
-manufacturer's batches first, nearest expiry first, then the others. The Outgoing create form
-gets the same list from a new `GET /inventory/:id/batch-options?manufacturerId=` (available
-batches of the item, same row shape, same order), so neither form sorts batches itself.
+**Planned:** each row also carries `manufacturerId`, and an optional `&manufacturerId=` puts that
+manufacturer's batches first (phase 4, with editing).
+
+**Implemented** (backend, mock and form): the Outgoing create form gets its list from
+`GET /inventory/:id/batch-options?manufacturerId=`:
+`[{ "id": 10, "batchNumber": "SS-401", "quantity": 135, "expiryDate": "2026-12-03", "expiryStatus": "expiring_soon", "manufacturerId": 4 }]`.
+- The batches of the item that hold stock (an active receipt and `quantity > 0`). `quantity` is
+  what can be issued: `0` for an expired batch.
+- Order: the usable batches of `manufacturerId` (when given), then the other usable batches,
+  then the expired ones (listed so the form can say why they cannot be issued). Within each group
+  the nearest expiry first (first expiry, first out); batches with no expiry date after them.
+- `[]` for an archived item; `404` for an unknown item; `422` if `manufacturerId` is not a number.
 
 `GET /transactions/:id/revisions` returns the transaction's edit history, newest first (the
 record shape and rules are in "Edit history" in section 3). `[]` for a transaction that was never

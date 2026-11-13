@@ -373,6 +373,25 @@ try {
     assert.equal(updated.manufacturerId, 2);
   });
 
+  check('outgoing batch list: nearest expiry first, the chosen manufacturer first, expired last', async () => {
+    await signIn(STOREKEEPER);
+    const numbers = async (manufacturerId) => (await transactions.getItemBatchOptionsApi(1, { manufacturerId })).map((batch) => batch.batchNumber);
+    // Paracetamol: PC-101 (Nova Pharma) expires before PC-102 (Medica Labs).
+    assert.deepEqual(await numbers(), ['PC-101', 'PC-102']);
+    assert.deepEqual(await numbers(2), ['PC-102', 'PC-101'], 'Medica Labs first');
+    const options = await transactions.getItemBatchOptionsApi(1);
+    assert.deepEqual(options.map((batch) => batch.manufacturerId), [1, 2]);
+
+    // A back-dated receipt of a batch that has expired since: listed last, with nothing to issue.
+    await transactions.createIncomingTransactionApi(incoming({ itemId: 1, batchNumber: 'OLD-1', date: '2026-01-01', expiryDate: '2026-02-01', manufacturer: 'Medica Labs' }));
+    const withExpired = await transactions.getItemBatchOptionsApi(1, { manufacturerId: 2 });
+    assert.deepEqual(withExpired.map((batch) => batch.batchNumber), ['PC-102', 'PC-101', 'OLD-1']);
+    assert.equal(withExpired[2].quantity, 0);
+    assert.equal(withExpired[2].expiryStatus, 'expired');
+
+    await rejection(transactions.getItemBatchOptionsApi(999), 404);
+  });
+
   check('outgoing: cannot exceed the stock of the batch, and a rejected issue changes nothing', async () => {
     await signIn(STOREKEEPER);
     const item = await findItem(2); // Amoxicillin: 15 left in one batch

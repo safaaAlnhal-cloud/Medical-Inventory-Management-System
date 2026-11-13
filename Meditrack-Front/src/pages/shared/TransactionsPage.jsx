@@ -23,6 +23,7 @@ import {
   createOutgoingTransactionApi,
   getIncomingTransactionsApi,
   getOutgoingTransactionsApi,
+  getItemBatchOptionsApi,
   getTransactionBatchOptionsApi,
   updateTransactionApi,
 } from '../../services/transactionsApi';
@@ -40,7 +41,9 @@ const DEFAULT_PAGE_SIZE = 8;
 const newIncomingForm = () => ({
   itemId: '', quantity: '', unitCost: '', date: toISODate(), expiryDate: '', batchNumber: '', supplier: '', manufacturer: '', manufacturingDate: '',
 });
-const newOutgoingForm = () => ({ itemId: '', quantity: '', batchId: '', date: toISODate(), recipient: '' });
+// manufacturerId only orders the batch list (that manufacturer's batches first); it is not sent:
+// the batch itself says who made it.
+const newOutgoingForm = () => ({ itemId: '', manufacturerId: '', quantity: '', batchId: '', date: toISODate(), recipient: '' });
 const isExpired = (batch) => batch.expiryStatus === EXPIRY_STATUS.EXPIRED;
 
 // The edit form holds the fields of both types, so the type itself can be changed.
@@ -160,28 +163,45 @@ const IncomingFields = ({ form, onChange, items, manufacturers = EMPTY_LIST, err
 // An expired batch is listed but cannot be chosen: expired stock is never issued, only disposed
 // of. `keepBatchId` is the batch an edited transaction already uses; it stays selectable so an
 // issue recorded before its batch expired can still have its other details corrected.
-const OutgoingFields = ({ form, onChange, items, batches, batchesLoading = false, errors = NO_ERRORS, keepBatchId = null }) => {
+//
+// `manufacturers` (add form only) are the manufacturers with usable stock of the item. Choosing
+// one only puts its batches first; any batch can still be chosen. If the chosen batch is from
+// another manufacturer a note says so, without blocking the save: the batch decides what is
+// recorded, and the box in hand may simply come from another batch.
+const OutgoingFields = ({ form, onChange, items, batches, batchesLoading = false, errors = NO_ERRORS, keepBatchId = null, manufacturers = null, allManufacturers = EMPTY_LIST }) => {
   const canIssueFrom = (batch) => !isExpired(batch) || sameId(batch.id, keepBatchId);
   const hasBlockedBatch = batches.some((batch) => !canIssueFrom(batch));
   const hasUsableBatch = batches.some(canIssueFrom);
+  const nameOf = (id) => allManufacturers.find((manufacturer) => sameId(manufacturer.id, id))?.name;
+  const selectedBatch = batches.find((batch) => sameId(batch.id, form.batchId));
+  const otherManufacturer = manufacturers && form.manufacturerId && selectedBatch && !sameId(selectedBatch.manufacturerId, form.manufacturerId);
   return (
     <>
       <label className="block">
-        <span className={fieldLabelClass}>Item Name</span>
-        <select required value={form.itemId} onChange={(e) => onChange({ itemId: e.target.value, batchId: '' })} className={`${fieldInputClass} cursor-pointer`}>
+        <span className={fieldLabelClass}>Item Name<Required /></span>
+        <select required value={form.itemId} onChange={(e) => onChange({ itemId: e.target.value, manufacturerId: '', batchId: '' })} className={`${fieldInputClass} cursor-pointer`}>
           <option value="">Select Item from Inventory</option>
           {items.map((item) => (<option key={item.id} value={item.id}>{item.name}</option>))}
         </select>
         <FieldError message={errors.itemId} />
       </label>
+      {manufacturers && (
+        <label className="block">
+          <span className={fieldLabelClass}>Manufacturer<Optional /></span>
+          <select value={form.manufacturerId} disabled={!form.itemId || manufacturers.length === 0} onChange={(e) => onChange({ manufacturerId: e.target.value, batchId: '' })} className={`${fieldInputClass} cursor-pointer disabled:cursor-not-allowed disabled:opacity-60`}>
+            <option value="">{!form.itemId ? 'Select an item first' : manufacturers.length ? 'Any manufacturer' : 'No manufacturer recorded for this item'}</option>
+            {manufacturers.map((manufacturer) => (<option key={manufacturer.id} value={manufacturer.id}>{manufacturer.name}</option>))}
+          </select>
+        </label>
+      )}
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         <label className="block">
-          <span className={fieldLabelClass}>Quantity</span>
+          <span className={fieldLabelClass}>Quantity<Required /></span>
           <input type="number" min="1" step="1" required placeholder="30" value={form.quantity} onChange={(e) => onChange({ quantity: e.target.value })} className={fieldInputClass} />
           <FieldError message={errors.quantity} />
         </label>
         <label className="block">
-          <span className={fieldLabelClass}>Batch No.</span>
+          <span className={fieldLabelClass}>Batch No.<Required /></span>
           <select required value={form.batchId} onChange={(e) => onChange({ batchId: e.target.value })} className={`${fieldInputClass} cursor-pointer`}>
             <option value="">{!form.itemId ? 'Select an item first' : batchesLoading ? 'Loading batches...' : hasUsableBatch ? 'Select batch' : 'No stock available'}</option>
             {batches.map((batch) => (canIssueFrom(batch) ? (
@@ -193,6 +213,11 @@ const OutgoingFields = ({ form, onChange, items, batches, batchesLoading = false
           <FieldError message={errors.batchId} />
         </label>
       </div>
+      {otherManufacturer && (
+        <div role="note" className="p-3 rounded-xl text-xs font-bold bg-amber-50 text-amber-700 border border-amber-200">
+          Batch {selectedBatch.batchNumber} is {selectedBatch.manufacturerId == null ? 'of an unknown manufacturer' : `from ${nameOf(selectedBatch.manufacturerId)}`}, not {nameOf(form.manufacturerId)}. Check that it is the batch of the box you are issuing.
+        </div>
+      )}
       {/* Says why a listed batch is greyed out and what to do with it instead. */}
       {hasBlockedBatch && (
         <div role="note" className="p-3 rounded-xl text-xs font-bold bg-amber-50 text-amber-700 border border-amber-200">
@@ -200,12 +225,12 @@ const OutgoingFields = ({ form, onChange, items, batches, batchesLoading = false
         </div>
       )}
       <label className="block">
-        <span className={fieldLabelClass}>Date</span>
+        <span className={fieldLabelClass}>Date<Required /></span>
         <input type="date" required value={form.date} onChange={(e) => onChange({ date: e.target.value })} className={`${fieldInputClass} cursor-pointer`} />
         <FieldError message={errors.date} />
       </label>
       <label className="block">
-        <span className={fieldLabelClass}>Recipient / Department</span>
+        <span className={fieldLabelClass}>Recipient / Department<Required /></span>
         <input type="text" required placeholder="e.g. Emergency Dept" value={form.recipient} onChange={(e) => onChange({ recipient: e.target.value })} className={fieldInputClass} />
         <FieldError message={errors.recipient} />
       </label>
@@ -285,7 +310,23 @@ const TransactionsPage = () => {
   const isIncomingTab = activeTab === INCOMING;
   const displayedTransactions = showAll ? transactions : transactions.slice(0, DEFAULT_PAGE_SIZE);
   const hasActiveFilters = selectedItemId !== 'all' || fromDate || toDate;
-  const outgoingBatches = inventoryItems.find((item) => sameId(item.id, outgoingForm.itemId))?.batches ?? EMPTY_LIST;
+  // The Outgoing form's batch list comes from the service already in order: the chosen
+  // manufacturer's batches first, nearest expiry first, expired ones last.
+  const outgoingItemId = openModal === OUTGOING && outgoingForm.itemId ? resolveId(inventoryItems, outgoingForm.itemId) : undefined;
+  const outgoingManufacturerId = outgoingForm.manufacturerId ? resolveId(manufacturers, outgoingForm.manufacturerId) : undefined;
+  const loadOutgoingBatches = useCallback(
+    () => (outgoingItemId !== undefined ? getItemBatchOptionsApi(outgoingItemId, { manufacturerId: outgoingManufacturerId }) : loadNoBatches()),
+    [outgoingItemId, outgoingManufacturerId],
+  );
+  const { data: loadedOutgoingBatches, loading: outgoingBatchesLoading } = useAsyncData(loadOutgoingBatches, EMPTY_LIST);
+  const outgoingBatches = outgoingBatchesLoading ? EMPTY_LIST : loadedOutgoingBatches;
+  // Only the manufacturers that have usable stock of this item can be chosen.
+  const outgoingManufacturers = useMemo(() => {
+    const ids = new Set(loadedOutgoingBatches.filter((batch) => !isExpired(batch) && batch.manufacturerId != null).map((batch) => String(batch.manufacturerId)));
+    return manufacturers.filter((manufacturer) => ids.has(String(manufacturer.id)));
+  }, [loadedOutgoingBatches, manufacturers]);
+  // Until the user picks a batch, the first usable one in the list is selected.
+  const outgoingBatchId = outgoingForm.batchId || String(outgoingBatches.find((batch) => !isExpired(batch))?.id ?? '');
 
   const editingId = editingTransaction?.id;
   const editItemId = editForm ? resolveId(inventoryItems, editForm.itemId) : undefined;
@@ -443,7 +484,7 @@ const TransactionsPage = () => {
       itemId: resolveId(inventoryItems, outgoingForm.itemId),
       quantity: toNumber(outgoingForm.quantity),
       date: outgoingForm.date,
-      batchId: resolveId(outgoingBatches, outgoingForm.batchId),
+      batchId: resolveId(outgoingBatches, outgoingBatchId),
       recipient: outgoingForm.recipient.trim(),
     });
   };
@@ -629,7 +670,16 @@ const TransactionsPage = () => {
         <Modal title="Add Outgoing Stock" spacing="space-y-4" onClose={() => setOpenModal(null)}>
           <form onSubmit={handleSaveOutgoing} className="space-y-3.5 text-xs">
             {formError && <InlineAlert>{formError}</InlineAlert>}
-            <OutgoingFields form={outgoingForm} onChange={(changes) => setOutgoingForm({ ...outgoingForm, ...changes })} items={inventoryItems} batches={outgoingBatches} errors={fieldErrors} />
+            <OutgoingFields
+              form={{ ...outgoingForm, batchId: outgoingBatchId }}
+              onChange={(changes) => setOutgoingForm({ ...outgoingForm, ...changes })}
+              items={inventoryItems}
+              batches={outgoingBatches}
+              batchesLoading={outgoingBatchesLoading}
+              manufacturers={outgoingManufacturers}
+              allManufacturers={manufacturers}
+              errors={fieldErrors}
+            />
             <div className="pt-3 flex items-center justify-end gap-2 border-t">
               <button type="button" onClick={() => setOpenModal(null)} className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-600 font-bold rounded-xl cursor-pointer">Cancel</button>
               <button type="submit" disabled={saving} className="px-4 py-2 bg-[#115e54] hover:bg-[#0e4f47] text-white font-bold rounded-xl cursor-pointer disabled:opacity-50">{saving ? 'Saving...' : 'Save Outgoing'}</button>
