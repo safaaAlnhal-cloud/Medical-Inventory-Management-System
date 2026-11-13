@@ -1,12 +1,12 @@
 import React, { useCallback, useState } from 'react';
-import { UserPlus, ShieldCheck, Mail, CheckCircle2, Activity, Package } from 'lucide-react';
+import { UserPlus, ShieldCheck, Mail, CheckCircle2, Activity, Package, CalendarClock } from 'lucide-react';
 import { ACTION_BUTTON_TONE, EditIcon, ViewIcon } from '../../components/common/ActionIcons';
 import { TableState } from '../../components/common/DataState';
 import FormField, { inputClassName } from '../../components/common/FormField';
 import InlineAlert from '../../components/common/InlineAlert';
 import Modal from '../../components/common/Modal';
 import PageHeader from '../../components/common/PageHeader';
-import { MIN_PASSWORD_LENGTH, ROLE_LABELS, USER_STATUS, USER_STATUS_LABELS } from '../../constants/users';
+import { MIN_PASSWORD_LENGTH, ROLE_LABELS, ROLES, USER_STATUS, USER_STATUS_LABELS } from '../../constants/users';
 import { useAuth } from '../../context/AuthContext';
 import { useToast } from '../../context/ToastContext';
 import { useAsyncData } from '../../hooks/useAsyncData';
@@ -14,12 +14,14 @@ import { useCreateParam } from '../../hooks/useCreateParam';
 import { useSearchQuery } from '../../hooks/useSearchQuery';
 import { getErrorMessage, getFieldErrors } from '../../services/apiError';
 import { createUserApi, getUsersApi, resetUserPasswordApi, updateUserApi } from '../../services/usersApi';
-import { formatDateTime, formatNumber, getInitial } from '../../utils/formatters';
+import { toISODate } from '../../utils/dates';
+import { formatDate, formatDateTime, formatNumber, getInitial } from '../../utils/formatters';
 import { sameId } from '../../utils/ids';
 
 const EMPTY_LIST = [];
 const NO_ERRORS = {};
-const EMPTY_ADD_FORM = { name: '', email: '', password: '' };
+// accountExpiresOn: '' means the account never expires.
+const EMPTY_ADD_FORM = { name: '', email: '', password: '', accountExpiresOn: '' };
 
 const UsersPage = () => {
   const { user, updateUser } = useAuth();
@@ -36,7 +38,7 @@ const UsersPage = () => {
   const [viewingUser, setViewingUser] = useState(null);
   const [editingUser, setEditingUser] = useState(null);
   // `newPassword` is optional: left empty, the user's password is not touched.
-  const [editForm, setEditForm] = useState({ name: '', email: '', status: USER_STATUS.ACTIVE, newPassword: '' });
+  const [editForm, setEditForm] = useState({ name: '', email: '', status: USER_STATUS.ACTIVE, accountExpiresOn: '', newPassword: '' });
 
   const [formError, setFormError] = useState('');
   const [fieldErrors, setFieldErrors] = useState(NO_ERRORS);
@@ -65,7 +67,7 @@ const UsersPage = () => {
   useCreateParam(openAddModal);
 
   const openEditModal = (user) => {
-    setEditForm({ name: user.name, email: user.email, status: user.status, newPassword: '' });
+    setEditForm({ name: user.name, email: user.email, status: user.status, accountExpiresOn: user.accountExpiresOn ?? '', newPassword: '' });
     clearErrors();
     setEditingUser(user);
   };
@@ -75,7 +77,7 @@ const UsersPage = () => {
     setSaving(true);
     clearErrors();
     try {
-      await createUserApi({ name: addForm.name.trim(), email: addForm.email.trim(), password: addForm.password });
+      await createUserApi({ name: addForm.name.trim(), email: addForm.email.trim(), password: addForm.password, accountExpiresOn: addForm.accountExpiresOn || null });
       setIsAddModalOpen(false);
       showSuccess('Storekeeper account created.');
       reload();
@@ -95,7 +97,9 @@ const UsersPage = () => {
     clearErrors();
 
     try {
-      const updated = await updateUserApi(editingUser.id, { name: editForm.name.trim(), email: editForm.email.trim(), status: editForm.status });
+      // The admin account never expires, so its form has no date and sends none.
+      const expiry = editingUser.role === ROLES.ADMIN ? {} : { accountExpiresOn: editForm.accountExpiresOn || null };
+      const updated = await updateUserApi(editingUser.id, { name: editForm.name.trim(), email: editForm.email.trim(), status: editForm.status, ...expiry });
       if (sameId(updated.id, currentUserId)) updateUser(updated);
       reload();
     } catch (err) {
@@ -154,9 +158,17 @@ const UsersPage = () => {
                       <td className="py-4 px-3 md:px-6 text-slate-600">{row.email}</td>
                       <td className="py-4 px-3 md:px-6 text-slate-700 font-semibold">{ROLE_LABELS[row.role]}</td>
                       <td className="py-4 px-3 md:px-6">
-                        <span className={`px-2.5 py-1 rounded-md text-[11px] font-bold ${row.status === USER_STATUS.ACTIVE ? 'bg-emerald-50 text-emerald-700' : 'bg-rose-50 text-rose-700'}`}>
-                          {USER_STATUS_LABELS[row.status]}
-                        </span>
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          <span className={`px-2.5 py-1 rounded-md text-[11px] font-bold ${row.status === USER_STATUS.ACTIVE ? 'bg-emerald-50 text-emerald-700' : 'bg-rose-50 text-rose-700'}`}>
+                            {USER_STATUS_LABELS[row.status]}
+                          </span>
+                          {/* Separate from the status: an expired account can still be active. */}
+                          {row.accountExpired && (
+                            <span title={`Last day: ${formatDate(row.accountExpiresOn)}`} className="px-2.5 py-1 rounded-md text-[11px] font-bold bg-amber-50 text-amber-700">
+                              Expired
+                            </span>
+                          )}
+                        </div>
                       </td>
                       <td className="py-4 px-3 md:px-6">
                         <div className="flex items-center justify-center gap-3">
@@ -189,6 +201,9 @@ const UsersPage = () => {
             </FormField>
             <FormField label={`Password (min. ${MIN_PASSWORD_LENGTH} characters)`} error={fieldErrors.password}>
               <input type="password" required minLength={MIN_PASSWORD_LENGTH} autoComplete="new-password" placeholder="••••••••" value={addForm.password} onChange={(e) => setAddForm({ ...addForm, password: e.target.value })} className={inputClassName} />
+            </FormField>
+            <FormField label="Account Expires On (optional, last working day)" error={fieldErrors.accountExpiresOn}>
+              <input type="date" min={toISODate()} value={addForm.accountExpiresOn} onChange={(e) => setAddForm({ ...addForm, accountExpiresOn: e.target.value })} className={inputClassName} />
             </FormField>
             <div className="pt-3 flex justify-end gap-2">
               <button type="button" onClick={() => setIsAddModalOpen(false)} className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-xl transition cursor-pointer">
@@ -228,6 +243,14 @@ const UsersPage = () => {
                 <span className="text-slate-400 flex items-center gap-1.5"><CheckCircle2 className="w-4 h-4" /> Status:</span>
                 <span className={`${statusTextClass(viewingUser.status)} font-bold`}>{USER_STATUS_LABELS[viewingUser.status]}</span>
               </div>
+              {viewingUser.role !== ROLES.ADMIN && (
+                <div className="flex justify-between gap-3 p-3 bg-slate-50 rounded-xl">
+                  <span className="text-slate-400 flex items-center gap-1.5"><CalendarClock className="w-4 h-4" /> Account Expires:</span>
+                  <span className={viewingUser.accountExpired ? 'text-amber-700 font-bold' : 'text-slate-700'}>
+                    {viewingUser.accountExpiresOn ? `${formatDate(viewingUser.accountExpiresOn)}${viewingUser.accountExpired ? ' (expired)' : ''}` : 'Never'}
+                  </span>
+                </div>
+              )}
               <div className="flex justify-between gap-3 p-3 bg-slate-50 rounded-xl">
                 <span className="text-slate-400 flex items-center gap-1.5"><Activity className="w-4 h-4" /> Last Activity:</span>
                 <span className="text-slate-700">{viewingUser.lastActiveAt ? formatDateTime(viewingUser.lastActiveAt) : 'Never'}</span>
@@ -264,6 +287,12 @@ const UsersPage = () => {
                 <option value={USER_STATUS.INACTIVE}>{USER_STATUS_LABELS.inactive}</option>
               </select>
             </FormField>
+            {/* Only storekeeper accounts can expire. Empty: the account never expires. */}
+            {editingUser.role !== ROLES.ADMIN && (
+              <FormField label="Account Expires On (optional, last working day)" error={fieldErrors.accountExpiresOn}>
+                <input type="date" min={toISODate()} value={editForm.accountExpiresOn} onChange={(e) => setEditForm({ ...editForm, accountExpiresOn: e.target.value })} className={inputClassName} />
+              </FormField>
+            )}
             {/* How a forgotten password is recovered: an admin sets a new one here. Admins change
                 their own password in Settings, where the current password is required. */}
             {!sameId(editingUser.id, currentUserId) && (
