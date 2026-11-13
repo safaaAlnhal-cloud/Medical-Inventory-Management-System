@@ -116,6 +116,26 @@ try {
     await rejection(auth.loginApi(STOREKEEPER), 403);
   });
 
+  check('users: account expiry date on create and edit, the Expired badge flag and the "expired" search', async () => {
+    await signIn(ADMIN);
+    const created = await users.createUserApi({ name: 'Temp', email: 'temp@medcenter.ps', password: 'secret1', accountExpiresOn: today });
+    assert.equal(created.accountExpiresOn, today);
+    assert.equal(created.accountExpired, false);
+    await rejection(users.createUserApi({ name: 'Old', email: 'old@medcenter.ps', password: 'secret1', accountExpiresOn: '2000-01-01' }), 422, 'accountExpiresOn');
+
+    const body = { name: 'Temp', email: 'temp@medcenter.ps', status: 'active' };
+    assert.equal((await users.updateUserApi(created.id, body)).accountExpiresOn, today, 'a date that is not sent stays');
+    assert.equal((await users.updateUserApi(created.id, { ...body, accountExpiresOn: null })).accountExpiresOn, null);
+    await rejection(users.updateUserApi(1, { name: 'Sara Ahmed', email: ADMIN.email, status: 'active', accountExpiresOn: '2030-01-01' }), 422, 'accountExpiresOn');
+
+    const { getDb } = await load('services/mock/mockDb.js');
+    getDb().users.find((user) => user.id === created.id).accountExpiresOn = '2000-01-01';
+    const found = await users.getUsersApi({ search: 'expired' });
+    assert.deepEqual(found.map((user) => user.id), [created.id]);
+    assert.equal(found[0].accountExpired, true);
+    await users.updateUserApi(created.id, { ...body, accountExpiresOn: '2000-01-01' });
+  });
+
   check('storekeeper: admin-only services are rejected with 403', async () => {
     await signIn(STOREKEEPER);
     await rejection(users.getUsersApi(), 403);

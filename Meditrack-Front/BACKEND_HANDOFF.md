@@ -159,7 +159,7 @@ show each message under the input whose name matches the key; a failure without 
 |---|---|
 | Item | `name`, `categoryId`, `unit`, `minQty`; **planned:** `activeIngredient`, `strength`, `dosageForm`, `storageConditions`, `uses`, `description` |
 | Transaction | `type`, `itemId`, `quantity`, `unitCost`, `date`, `expiryDate`, `batchNumber`, `supplier`, `manufacturer`, `manufacturingDate`, `batchId`, `recipient` |
-| User | `name`, `email`, `password`, `status`, `newPassword`; **planned:** `accountExpiresOn` |
+| User | `name`, `email`, `password`, `status`, `newPassword`, `accountExpiresOn` |
 | Barcode (**planned**) | `barcode`, `manufacturer` |
 | Archive item (**planned**) | `reason` |
 
@@ -190,7 +190,7 @@ gets no answer within 20 seconds is reported as a timeout. Statuses the frontend
 `transactionsCount` is the number of active (not cancelled) transactions whose `recordedBy` is this user.
 Passwords are never returned by any endpoint.
 
-**Planned** fields (account expiry, decision 23):
+Account expiry fields (**implemented**, decision 23):
 ```json
 { "accountExpiresOn": "2026-12-31", "accountExpired": false }
 ```
@@ -839,8 +839,10 @@ New users start `active`. `409` if the email is taken.
 
 `PUT /users/:id` request: `{ "name", "email", "status" }` → `200` with the `User`. `404` / `409` as applicable.
 
-**Planned:** both requests also accept `"accountExpiresOn": "2026-12-31"` or `null` (see "Account
-expiry" below). `search` on `GET /users` also matches "expired".
+**Implemented:** both requests also accept `"accountExpiresOn": "2026-12-31"` or `null` (see
+"Account expiry" below). In `PUT /users/:id` it is optional: left out, the date stays as it is.
+`search` on `GET /users` also matches "expired". Emails are stored in lower case.
+`PUT /users/:id/password` answers `204`.
 
 Validation (**backend must**; the mock applies the same rules):
 
@@ -859,7 +861,7 @@ deleted: an account that should no longer be used is set to `inactive`. Because 
 cannot deactivate their own account, the system always keeps an active admin.
 `lastActiveAt` is updated at login (open decision 15).
 
-#### Account expiry (decided, decision 23; planned in the frontend)
+#### Account expiry (decided, decision 23; implemented except the alerts, which come with section 4.6)
 
 An **account** expires, not a password. There is no password expiry.
 
@@ -868,7 +870,9 @@ An **account** expires, not a password. There is no password expiry.
   admin account never expires: a date sent for it is rejected (`422`, field `accountExpiresOn`).
 - **Decided:** `accountExpiresOn` is the **last day** the account works; it stops the next day.
 - Validation: `null` or a real `YYYY-MM-DD` date, not before today (`422`). **Decided:** a past
-  date is refused; to stop an account at once, the admin sets it `inactive`.
+  date is refused; to stop an account at once, the admin sets it `inactive`. The one exception:
+  `PUT /users/:id` accepts the date the account already has, so an expired account's other
+  fields can still be edited without changing its date.
 - From the day after `accountExpiresOn`, login returns `403` and every request with an existing
   token returns `401`, so the user is signed out. The tokens are not deleted: moving the date
   forward makes the account usable again (a new sign-in is needed if the token itself expired).
@@ -880,7 +884,7 @@ An **account** expires, not a password. There is no password expiry.
   new unread alert).
 - There is no "request an extension" flow: the storekeeper asks the admin, who edits the date.
 
-User form fields (planned): `name` *, `email` *, `password` * (create only), `status` *,
+User form fields (implemented): `name` *, `email` *, `password` * (create only), `status` *,
 `accountExpiresOn` (optional, storekeepers only).
 
 ### 4.3 Categories

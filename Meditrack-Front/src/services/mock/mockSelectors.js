@@ -1,4 +1,6 @@
 import { NOTIFICATION_TYPES, OUTGOING_REASONS, TRANSACTION_STATUS, TRANSACTION_TYPES } from '../../constants/inventory';
+import { isAccountExpired } from '../../constants/users';
+import { toISODate } from '../../utils/dates';
 import { EXPIRY_STATUS, getExpiryStatus, getStockStatus, STOCK_STATUS } from '../../utils/stock';
 
 // Read-side helpers for the mock database. They play the role of the backend's queries:
@@ -307,6 +309,8 @@ export const selectUser = (db, user) => ({
   phone: user.phone ?? '',
   lastActiveAt: user.lastActiveAt ?? null,
   transactionsCount: selectActiveTransactions(db).filter((tx) => tx.recordedBy === user.id).length,
+  accountExpiresOn: user.accountExpiresOn ?? null,
+  accountExpired: isAccountExpired(user, toISODate()),
 });
 
 export const selectNameMaps = (db) => ({
