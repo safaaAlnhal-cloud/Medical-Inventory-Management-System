@@ -900,7 +900,7 @@ A category name is required (`422`, field `name`) and unique, case-insensitive (
 |---|---|---|---|
 | GET | `/inventory?search=` | Any signed-in user | Returns `Item[]`, **active items only**. `search` matches name, category name, unit, batch number |
 | GET | `/inventory/archived?search=` | Any signed-in user | Returns `Item[]`, **archived items only**, most recently archived first. Same search fields |
-| GET | `/inventory/batches/lookup` | Any signed-in user | Returns `[{ "id", "itemId", "batchNumber" }]` for **every** batch ever received, including used-up ones. Used to show the batch number for a `batchId` |
+| GET | `/inventory/batches/lookup` | Any signed-in user | Returns `[{ "id", "itemId", "batchNumber", "manufacturerId" }]` for **every** batch ever received, including used-up ones, those whose receipt was cancelled and those of archived items, ordered by `id`. Used to show the batch number for a `batchId`. **Implemented** (backend) |
 | GET | `/inventory/lookup` | Any signed-in user | Returns `[{ "id", "name", "unit", "archived" }]` for **all** items, including archived ones, so old transactions can still show the item name |
 | POST | `/inventory` | Any signed-in user | Creates an item |
 | PUT | `/inventory/:id` | Any signed-in user | Updates `name`, `categoryId`, `unit`, `minQty` only. Stock, batches, costs and the archive state are never changed by it. `409` if the item is archived |
@@ -922,7 +922,8 @@ Changes to existing endpoints (planned):
 - `PATCH /inventory/:id/archive` takes `{ "reason" }` (required, see "Archived items").
 - `search` on `/inventory` and `/inventory/archived` also matches barcodes, manufacturer names and
   `activeIngredient`.
-- `/inventory/batches/lookup` rows also carry `manufacturerId`.
+- `/inventory/batches/lookup` rows also carry `manufacturerId`. **Implemented** (backend); the
+  frontend does not read it yet.
 
 There is no `DELETE /inventory/:id`: items are never removed. All rules are in "Archived items"
 in section 3.

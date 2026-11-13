@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\Inventory\BatchLookupController;
 use App\Http\Controllers\Inventory\BatchOptionController;
 use Illuminate\Support\Facades\Route;
 
@@ -10,5 +11,6 @@ use Illuminate\Support\Facades\Route;
 // GET /inventory/{item}/batch-options?manufacturerId=
 
 Route::prefix('inventory')->group(function () {
+    Route::get('/batches/lookup', [BatchLookupController::class, 'index']);
     Route::get('/{item}/batch-options', [BatchOptionController::class, 'index']);
 });

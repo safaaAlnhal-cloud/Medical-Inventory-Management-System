@@ -240,6 +240,20 @@ class TransactionService
             ->values();
     }
 
+    /**
+     * GET /inventory/batches/lookup: every batch ever received, so any transaction can show its
+     * batch number. Batches that are used up, whose receipt was cancelled or whose item is
+     * archived are kept: their old transactions still point at them.
+     *
+     * @return Collection<int, Batch>
+     */
+    public function batchLookup(): Collection
+    {
+        return Batch::query()
+            ->orderBy('id')
+            ->get(['id', 'item_id', 'batch_number', 'manufacturer_id']);
+    }
+
     private function ensureItemIsActive(Item $item): void
     {
         if ($item->isArchived()) {
