@@ -295,6 +295,7 @@ try {
     assert.match(error.message, /deactivated items/);
     await rejection(categories.deleteCategoryApi(9999), 404);
     await rejection(categories.createCategoryApi({ name: 'temporary' }), 409, 'name');
+    await rejection(categories.createCategoryApi({ name: 'a'.repeat(101) }), 422, 'name');
   });
 
   // ---- Items ------------------------------------------------------------------------------------

@@ -891,12 +891,13 @@ User form fields (implemented): `name` *, `email` *, `password` * (create only),
 
 | Method | Endpoint | Access | Notes |
 |---|---|---|---|
-| GET | `/categories` | Any signed-in user | Returns `Category[]` |
-| POST | `/categories` | Admin | Request `{ "name" }` → the `Category`. `409` on duplicate name |
+| GET | `/categories` | Any signed-in user | Returns `Category[]`, oldest first |
+| POST | `/categories` | Admin | Request `{ "name" }` → `201` with the `Category`. `409` on duplicate name |
 | PUT | `/categories/:id` | Admin | Request `{ "name" }` → the `Category`. `409` on duplicate name |
-| DELETE | `/categories/:id` | Admin | `409` while any item, **active or archived**, still uses the category. `404` if it does not exist |
+| DELETE | `/categories/:id` | Admin | → `204`. `409` while any item, **active or archived**, still uses the category. `404` if it does not exist |
 
-A category name is required (`422`, field `name`) and unique, case-insensitive (`409`).
+**Implemented** (backend and mock). A category name is required (`422`, field `name`), at most 100
+characters after trimming (`422`), and unique, case-insensitive (`409`, field `name`).
 
 ### 4.4 Inventory
 
