@@ -115,7 +115,8 @@ class UserService
         $user->update(['password' => $newPassword]);
     }
 
-    private function ensureEmailIsFree(string $email, ?User $except = null): void
+    /** 409 on "email" when another account (not $except) already uses the address, whatever its case. */
+    public function ensureEmailIsFree(string $email, ?User $except = null): void
     {
         $taken = User::query()
             ->whereRaw('LOWER(email) = ?', [$email])
@@ -147,7 +148,8 @@ class UserService
         return $date;
     }
 
-    private function withTransactionsCount(User $user): User
+    /** Adds transactionsCount: the active transactions the user recorded. */
+    public function withTransactionsCount(User $user): User
     {
         return $user->loadCount(['recordedTransactions as transactions_count' => fn (Builder $query) => $query->active()]);
     }

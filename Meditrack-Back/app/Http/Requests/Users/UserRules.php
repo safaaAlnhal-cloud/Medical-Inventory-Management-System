@@ -10,6 +10,8 @@ final class UserRules
 {
     public const PAST_DATE = 'The account expiry date cannot be in the past.';
 
+    public const WRONG_PASSWORD = 'Current password is incorrect.';
+
     public static function messages(): array
     {
         $password = 'The password must be at least 6 characters.';

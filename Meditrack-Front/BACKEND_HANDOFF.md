@@ -1332,6 +1332,12 @@ They always act on the user identified by the token.
 | PUT | `/profile` | Any signed-in user | Request `{ "name", "email", "phone" }` → the `User`. `409` if the email is taken |
 | PUT | `/profile/password` | Any signed-in user | Request `{ "currentPassword", "newPassword" }`. `422` if `currentPassword` is wrong (field `currentPassword`) or `newPassword` is shorter than 6 characters (field `newPassword`). No response body needed |
 
+**Implemented** (backend and mock). `PUT /profile/password` returns `204`. `phone` is optional, at
+most 30 characters (`422`, field `phone`); an empty phone is stored as `null` and returned as `""`.
+`PUT /profile` only changes `name`, `email` and `phone`: a `role`, `status` or `accountExpiresOn`
+sent with it is ignored. An empty `currentPassword` gets the same message as a wrong one
+("Current password is incorrect.").
+
 - `PUT /profile` applies the same `name` / `email` rules as `PUT /users/:id` (section 4.2).
 - There is no separate `/settings` endpoint, and the Settings page has no settings beyond the
   profile and password.

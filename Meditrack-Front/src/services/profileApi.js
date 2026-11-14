@@ -17,14 +17,23 @@ export const getProfileApi = async () => {
   return mapUser(dto);
 };
 
-// Payload: { name, email, phone }
+// The users table holds phone numbers of up to 30 characters; the backend refuses longer ones (422).
+const MAX_PHONE_LENGTH = 30;
+
+const cleanPhone = (phone) => {
+  const trimmed = String(phone ?? '').trim();
+  if (trimmed.length > MAX_PHONE_LENGTH) throw fieldError('phone', `The phone number may not be longer than ${MAX_PHONE_LENGTH} characters.`);
+  return trimmed;
+};
+
+// Payload: { name, email, phone }. 409 on "email" when another account already uses it.
 export const updateProfileApi = async ({ name, email, phone }) => {
   const dto = await request({
     delay: 200,
     api: () => http.put('/profile', { name, email, phone }),
     mock: (db) => {
       const user = requireCurrentUser();
-      Object.assign(user, validateUserDetails(db, { name, email }, user.id), { phone: String(phone ?? '').trim() });
+      Object.assign(user, validateUserDetails(db, { name, email }, user.id), { phone: cleanPhone(phone) });
       commit();
       return selectUser(db, user);
     },

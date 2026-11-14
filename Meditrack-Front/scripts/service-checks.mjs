@@ -193,6 +193,13 @@ try {
     assert.equal((await auth.loginApi({ email: STOREKEEPER.email, password: 'brand-new-pass' })).user.id, 2);
   });
 
+  check('profile: a phone number longer than 30 characters is a 422', async () => {
+    await signIn(STOREKEEPER);
+    const me = await profile.getProfileApi();
+    await rejection(profile.updateProfileApi({ name: me.name, email: me.email, phone: '1'.repeat(31) }), 422, 'phone');
+    assert.equal((await profile.updateProfileApi({ name: me.name, email: me.email, phone: ' 0599 ' })).phone, '0599');
+  });
+
   check('profile: password change needs the current password and a valid new one', async () => {
     await signIn(STOREKEEPER);
     await rejection(profile.changePasswordApi({ currentPassword: 'wrong', newPassword: 'another-pass' }), 422, 'currentPassword');
