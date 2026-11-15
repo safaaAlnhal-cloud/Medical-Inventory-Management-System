@@ -523,6 +523,12 @@ display text only. The data model, service functions and endpoints keep the word
   reason.
 - Barcodes of an archived item cannot be added or removed (`409`), like the item's other fields.
 
+**Implemented** (backend and mock): archive with a reason, restore, the history endpoint, and
+`archiveReason` / `archivedBy` / `archiveHistoryCount` on the `Item`. The Deactivate dialog has
+the required Reason box. **Still planned in the frontend:** showing the reason in the Deactivated
+list, and the History button and modal. Archive and restore lock the item's row, so a receipt
+recorded at the same moment cannot slip in between the stock check and the archiving.
+
 Until the backend exists this lives in `archiveInventoryItemApi` / `restoreInventoryItemApi` in
 `src/services/inventoryApi.js` and `selectInventory` / `selectArchivedInventory` in
 `src/services/mock/mockSelectors.js`.
@@ -909,7 +915,7 @@ characters after trimming (`422`), and unique, case-insensitive (`409`, field `n
 | GET | `/inventory/lookup` | Any signed-in user | Returns `[{ "id", "name", "unit", "archived" }]` for **all** items, including archived ones, so old transactions can still show the item name |
 | POST | `/inventory` | Any signed-in user | Creates an item |
 | PUT | `/inventory/:id` | Any signed-in user | Updates `name`, `categoryId`, `unit`, `minQty` only. Stock, batches, costs and the archive state are never changed by it. `409` if the item is archived |
-| PATCH | `/inventory/:id/archive` | Any signed-in user | Archives the item (this is what "Delete" does). No body today; **planned:** `{ "reason" }`, required. Returns the `Item`. `409` while it has stock or if it is already archived |
+| PATCH | `/inventory/:id/archive` | Any signed-in user | Archives the item (this is what "Delete" does). Request `{ "reason" }`, required. **Implemented**. Returns the `Item`. `409` while it has stock or if it is already archived |
 | PATCH | `/inventory/:id/restore` | Any signed-in user | Restores an archived item. No body. Returns the `Item`. `409` if it is not archived or an active item has the same name |
 | GET | `/manufacturers?search=` | Any signed-in user | `[{ "id", "name" }]`, alphabetical. Without `search`: every manufacturer (a lookup, like `/inventory/lookup`). With it: names containing the text, case and surrounding spaces ignored, for the autocomplete. `422` (field `search`) if `search` is not text or is longer than 150 characters |
 
@@ -920,7 +926,7 @@ characters after trimming (`422`), and unique, case-insensitive (`409`, field `n
 | GET | `/inventory/by-barcode/:code` | Any signed-in user | `{ "item": { "id", "name", "unit", "archived" }, "manufacturerId", "barcode" }`. `404` if no item has that barcode. An archived item is returned with `archived: true`, so the UI can say it is deactivated |
 | POST | `/inventory/:id/barcodes` | Any signed-in user | Request `{ "barcode", "manufacturer" }` (manufacturer name, required; created if new) → `201` with the `Item`. `409` if the barcode is already used by any item (field `barcode`) or the item is archived |
 | DELETE | `/inventory/:id/barcodes/:barcodeId` | Any signed-in user | → `200` with the `Item`. `404` if the barcode is not this item's; `409` if the item is archived |
-| GET | `/inventory/:id/archive-history` | Any signed-in user | Archive records, newest first (shape in "Archived items", section 3). `[]` if never archived |
+| GET | `/inventory/:id/archive-history` | Any signed-in user | Archive records, newest first (shape in "Archived items", section 3). `[]` if never archived. **Implemented** |
 
 Changes to existing endpoints (planned):
 

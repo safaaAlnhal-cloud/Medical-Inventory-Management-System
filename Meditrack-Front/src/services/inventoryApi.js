@@ -2,7 +2,7 @@ import { UNITS } from '../constants/inventory';
 import { EXPIRY_STATUS, getExpiryStatus, getStockStatus } from '../utils/stock';
 import { http } from './apiAxios';
 import { ApiError, fieldError } from './apiError';
-import { commit, matchesSearch, nextId } from './mock/mockDb';
+import { commit, matchesSearch, nextId, requireCurrentUser } from './mock/mockDb';
 import { selectArchivedInventory, selectInventory, selectItem, selectNameMaps } from './mock/mockSelectors';
 import { request } from './request';
 
@@ -61,6 +61,10 @@ const mapItem = (dto) => {
     batches: (dto.batches ?? []).map(mapBatch),
     archived: Boolean(dto.archived),
     archivedAt: dto.archivedAt ?? null,
+    // The current archiving (null while active) and how many times the item was archived.
+    archiveReason: dto.archiveReason ?? null,
+    archivedBy: dto.archivedBy ?? null,
+    archiveHistoryCount: Number(dto.archiveHistoryCount) || 0,
   };
 };
 
@@ -91,6 +95,16 @@ const validateItem = (db, payload, exceptId = null) => {
   if (minQty > MAX_MIN_QTY) throw fieldError('minQty', `Minimum quantity may not be more than ${MAX_MIN_QTY.toLocaleString('en-US')}.`);
   assertNameAvailable(db, name, exceptId);
   return { name, categoryId: payload.categoryId, unit: payload.unit, minQty };
+};
+
+// The same rule as the backend: required (not only spaces) and at most 500 characters.
+const MAX_REASON_LENGTH = 500;
+
+const requireArchiveReason = (reason) => {
+  const trimmed = String(reason ?? '').trim();
+  if (!trimmed) throw fieldError('reason', 'Please enter the reason for deactivating this item.');
+  if (trimmed.length > MAX_REASON_LENGTH) throw fieldError('reason', `The reason may not be longer than ${MAX_REASON_LENGTH} characters.`);
+  return trimmed;
 };
 
 const findItem = (db, id) => {
@@ -181,12 +195,15 @@ export const updateInventoryItemApi = async (id, payload) => {
 // transactions. It is refused (409) while the item still has stock, so archiving can never make
 // stock or stock value disappear: the remaining stock has to be issued or corrected first.
 // Resolves with the archived item.
-export const archiveInventoryItemApi = async (id) => {
+// Payload: { reason }, required, 1-500 characters (422, field "reason"). Every archiving adds a
+// record to the item's archive history.
+export const archiveInventoryItemApi = async (id, { reason } = {}) => {
   const dto = await request({
     delay: 100,
-    api: () => http.patch(`/inventory/${id}/archive`),
+    api: () => http.patch(`/inventory/${id}/archive`, { reason }),
     mock: (db) => {
       const item = findItem(db, id);
+      const cleanReason = requireArchiveReason(reason);
       if (item.archived) throw new ApiError('This item is already deactivated.', { status: 409 });
       // "Stock" here is everything physically left: available stock and expired stock that
       // has not been disposed of yet. Neither may vanish with the item.
@@ -197,7 +214,12 @@ export const archiveInventoryItemApi = async (id) => {
       if (expiredQuantity > 0) {
         throw new ApiError(`"${item.name}" still has ${expiredQuantity} expired in stock awaiting disposal, so it cannot be deactivated yet. Record the disposal first.`, { status: 409 });
       }
-      Object.assign(item, { archived: true, archivedAt: new Date().toISOString() });
+      const archivedAt = new Date().toISOString();
+      db.itemArchivals.push({
+        id: nextId(db.itemArchivals), itemId: item.id, reason: cleanReason,
+        archivedBy: requireCurrentUser().id, archivedAt, restoredBy: null, restoredAt: null,
+      });
+      Object.assign(item, { archived: true, archivedAt });
       commit();
       return selectItem(db, item);
     },
@@ -217,10 +239,39 @@ export const restoreInventoryItemApi = async (id) => {
       if (db.items.some((other) => !other.archived && other.name.toLowerCase() === item.name.toLowerCase())) {
         throw new ApiError(`An active item named "${item.name}" already exists. Rename that item before reactivating this one.`, { status: 409 });
       }
+      // Complete the open record: the history keeps when the item came back, and who did it.
+      const open = db.itemArchivals.find((record) => record.itemId === item.id && record.restoredAt === null);
+      if (open) Object.assign(open, { restoredBy: requireCurrentUser().id, restoredAt: new Date().toISOString() });
       Object.assign(item, { archived: false, archivedAt: null });
       commit();
       return selectItem(db, item);
     },
   });
   return mapItem(dto);
+};
+
+// Archive history record: { id, itemId, reason, archivedBy, archivedAt, restoredBy, restoredAt }.
+// restoredBy / restoredAt are null while the item is still archived.
+const mapArchival = (dto) => ({
+  id: dto.id,
+  itemId: dto.itemId,
+  reason: dto.reason,
+  archivedBy: dto.archivedBy,
+  archivedAt: dto.archivedAt,
+  restoredBy: dto.restoredBy ?? null,
+  restoredAt: dto.restoredAt ?? null,
+});
+
+// Every archiving of the item, newest first. [] if it was never archived.
+export const getItemArchiveHistoryApi = async (id) => {
+  const dtos = await request({
+    api: () => http.get(`/inventory/${id}/archive-history`),
+    mock: (db) => {
+      findItem(db, id);
+      return db.itemArchivals
+        .filter((record) => record.itemId === id)
+        .sort((a, b) => b.archivedAt.localeCompare(a.archivedAt) || b.id - a.id);
+    },
+  });
+  return dtos.map(mapArchival);
 };

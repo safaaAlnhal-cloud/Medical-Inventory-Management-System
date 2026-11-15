@@ -25,4 +25,7 @@ Route::prefix('inventory')->group(function () {
     Route::get('/lookup', [ItemController::class, 'lookup']);
     Route::post('/', [ItemController::class, 'store']);
     Route::put('/{item}', [ItemController::class, 'update']);
+    Route::patch('/{item}/archive', [ItemController::class, 'archive']);
+    Route::patch('/{item}/restore', [ItemController::class, 'restore']);
+    Route::get('/{item}/archive-history', [ItemController::class, 'archiveHistory']);
 });

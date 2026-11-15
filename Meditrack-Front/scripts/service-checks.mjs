@@ -222,7 +222,7 @@ try {
   check('archive: refused while the item has stock, and nothing changes', async () => {
     await signIn(ADMIN);
     const before = await reports.getReportApi('inventory_value', sixMonths);
-    const error = await rejection(inventory.archiveInventoryItemApi(1), 409);
+    const error = await rejection(inventory.archiveInventoryItemApi(1, { reason: 'Not needed any more' }), 409);
     assert.match(error.message, /still has 500 in stock/);
     const after = await reports.getReportApi('inventory_value', sixMonths);
     assert.equal(after.totals.stockValue, before.totals.stockValue);
@@ -238,7 +238,7 @@ try {
     const outgoingBefore = await transactions.getOutgoingTransactionsApi({ itemId: SYRINGES });
     assert.ok(incomingBefore.length + outgoingBefore.length >= 4);
 
-    const archived = await inventory.archiveInventoryItemApi(SYRINGES);
+    const archived = await inventory.archiveInventoryItemApi(SYRINGES, { reason: 'Not needed any more' });
     assert.equal(archived.archived, true);
     assert.ok(archived.archivedAt);
     assert.equal(archived.id, SYRINGES);
@@ -271,20 +271,20 @@ try {
     await signIn(ADMIN);
     const SYRINGES = 5;
     const [firstIssue] = await transactions.getOutgoingTransactionsApi({ itemId: SYRINGES });
-    await inventory.archiveInventoryItemApi(SYRINGES);
+    await inventory.archiveInventoryItemApi(SYRINGES, { reason: 'Not needed any more' });
     await rejection(transactions.createIncomingTransactionApi(incoming({ itemId: SYRINGES })), 422, 'itemId');
     await rejection(transactions.createOutgoingTransactionApi({ itemId: SYRINGES, batchId: 1, quantity: 1, date: today, recipient: 'Ward' }), 422, 'itemId');
     await rejection(transactions.cancelTransactionApi(firstIssue.id), 409);
     await rejection(transactions.updateTransactionApi(firstIssue.id, { type: 'outgoing', itemId: SYRINGES, quantity: 1, date: firstIssue.date, batchId: firstIssue.batchId, recipient: 'Ward' }), 409);
     await rejection(inventory.updateInventoryItemApi(SYRINGES, { name: 'Renamed', categoryId: 2, unit: 'box', minQty: 1 }), 409);
-    await rejection(inventory.archiveInventoryItemApi(SYRINGES), 409);
+    await rejection(inventory.archiveInventoryItemApi(SYRINGES, { reason: 'Not needed any more' }), 409);
   });
 
   check('restore: the item returns with its history; a name clash is refused', async () => {
     await signIn(ADMIN);
     const SYRINGES = 5;
     const historyBefore = await transactions.getOutgoingTransactionsApi({ itemId: SYRINGES });
-    await inventory.archiveInventoryItemApi(SYRINGES);
+    await inventory.archiveInventoryItemApi(SYRINGES, { reason: 'Not needed any more' });
 
     const twin = await inventory.createInventoryItemApi({ name: 'Syringes 5ml', categoryId: 2, unit: 'box', minQty: 1 });
     await rejection(inventory.restoreInventoryItemApi(SYRINGES), 409);
@@ -301,12 +301,34 @@ try {
     assert.equal((await transactions.createIncomingTransactionApi(incoming({ itemId: SYRINGES }))).itemId, SYRINGES);
   });
 
+  check('archive: needs a reason, and every archiving is kept in the history', async () => {
+    await signIn(STOREKEEPER);
+    const item = await inventory.createInventoryItemApi({ name: 'History Item', categoryId: 2, unit: 'box', minQty: 0 });
+    await rejection(inventory.archiveInventoryItemApi(item.id, { reason: '   ' }), 422, 'reason');
+    await rejection(inventory.archiveInventoryItemApi(item.id, { reason: 'a'.repeat(501) }), 422, 'reason');
+    assert.deepEqual(await inventory.getItemArchiveHistoryApi(item.id), []);
+
+    const archived = await inventory.archiveInventoryItemApi(item.id, { reason: '  First time ' });
+    assert.equal(archived.archiveReason, 'First time');
+    assert.equal(archived.archivedBy, 2);
+    assert.equal(archived.archiveHistoryCount, 1);
+    const restored = await inventory.restoreInventoryItemApi(item.id);
+    assert.equal(restored.archiveReason, null);
+    await inventory.archiveInventoryItemApi(item.id, { reason: 'Second time' });
+
+    const history = await inventory.getItemArchiveHistoryApi(item.id);
+    assert.deepEqual(history.map((record) => record.reason), ['Second time', 'First time']);
+    assert.equal(history[0].restoredAt, null);
+    assert.equal(history[1].restoredBy, 2);
+    await rejection(inventory.getItemArchiveHistoryApi(9999), 404);
+  });
+
   check('categories: cannot be deleted while active or archived items use them', async () => {
     await signIn(ADMIN);
     const category = await categories.createCategoryApi({ name: 'Temporary' });
     const item = await inventory.createInventoryItemApi({ name: 'Temp Item', categoryId: category.id, unit: 'box', minQty: 0 });
     await rejection(categories.deleteCategoryApi(category.id), 409);
-    await inventory.archiveInventoryItemApi(item.id);
+    await inventory.archiveInventoryItemApi(item.id, { reason: 'Not needed any more' });
     const error = await rejection(categories.deleteCategoryApi(category.id), 409);
     assert.match(error.message, /deactivated items/);
     await rejection(categories.deleteCategoryApi(9999), 404);
@@ -778,10 +800,10 @@ try {
     await transactions.createOutgoingTransactionApi({ itemId, batchId: validBatchId, quantity: 20, date: today, recipient: 'Ward' });
     const item = await findItem(itemId);
     assert.deepEqual([item.quantity, item.expiredQuantity, item.status], [0, 10, 'out_of_stock']);
-    const error = await rejection(inventory.archiveInventoryItemApi(itemId), 409);
+    const error = await rejection(inventory.archiveInventoryItemApi(itemId, { reason: 'Not needed any more' }), 409);
     assert.match(error.message, /10 expired in stock awaiting disposal/);
     await transactions.createDisposalTransactionApi({ itemId, batchId: expiredBatchId, quantity: 10, date: today });
-    assert.equal((await inventory.archiveInventoryItemApi(itemId)).archived, true);
+    assert.equal((await inventory.archiveInventoryItemApi(itemId, { reason: 'Not needed any more' })).archived, true);
   });
 
   // ---- Notifications ----------------------------------------------------------------------------

@@ -5,7 +5,9 @@ namespace App\Services;
 use App\Enums\OutgoingReason;
 use App\Exceptions\ConflictException;
 use App\Http\Requests\Items\SaveItemRequest;
+use App\Models\Batch;
 use App\Models\Item;
+use App\Models\User;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Facades\DB;
@@ -21,7 +23,10 @@ class ItemService
 
     public const ARCHIVED = 'This item is deactivated. Reactivate it before editing it.';
 
-    public function __construct(private readonly NotificationService $notifications) {}
+    public function __construct(
+        private readonly NotificationService $notifications,
+        private readonly StockService $stock,
+    ) {}
 
     /** The active inventory, oldest first, or only the items that match $search. */
     public function list(?string $search): Collection
@@ -82,6 +87,77 @@ class ItemService
 
             return $this->load($item);
         });
+    }
+
+    /**
+     * Archives ("deactivates") the item: a new history record with the reason, and
+     * items.archived_at, in one database transaction so the two always agree.
+     * 409 when it is already archived, or while it still has stock: available stock, or expired
+     * stock awaiting disposal. Archiving must never make stock disappear from the inventory.
+     */
+    public function archive(Item $item, string $reason, User $user): Item
+    {
+        return DB::transaction(function () use ($item, $reason, $user) {
+            // Nobody records a receipt for this item until we are done, so the stock we check
+            // is still the stock when we archive.
+            $item = $this->stock->lockItems($item->id)->first();
+
+            if ($item->isArchived()) {
+                throw new ConflictException('This item is already deactivated.');
+            }
+
+            $batches = $item->batches()->where('quantity', '>', 0)->get();
+            $available = $batches->sum(fn (Batch $batch) => $batch->availableQuantity());
+            $expired = $batches->sum(fn (Batch $batch) => $batch->expiredQuantity());
+            if ($available > 0) {
+                throw new ConflictException("\"{$item->name}\" still has {$available} in stock, so it cannot be deactivated yet. Issue or correct the remaining stock first.");
+            }
+            if ($expired > 0) {
+                throw new ConflictException("\"{$item->name}\" still has {$expired} expired in stock awaiting disposal, so it cannot be deactivated yet. Record the disposal first.");
+            }
+
+            $now = now();
+            $item->archivals()->create(['reason' => $reason, 'archived_by' => $user->id, 'archived_at' => $now]);
+            $item->forceFill(['archived_at' => $now])->save();
+            // An archived item has no alerts.
+            $this->notifications->syncItem($item);
+
+            return $this->load($item);
+        });
+    }
+
+    /**
+     * Puts an archived item back in the active inventory with all of its history: completes the
+     * open history record and clears items.archived_at, in one database transaction.
+     * 409 when it is not archived, or an active item now has the same name.
+     */
+    public function restore(Item $item, User $user): Item
+    {
+        return DB::transaction(function () use ($item, $user) {
+            $item = $this->stock->lockItems($item->id)->first();
+
+            if (! $item->isArchived()) {
+                throw new ConflictException('This item is not deactivated.');
+            }
+            $twin = Item::query()->active()->whereRaw('LOWER(name) = ?', [Str::lower($item->name)])->exists();
+            if ($twin) {
+                throw new ConflictException("An active item named \"{$item->name}\" already exists. Rename that item before reactivating this one.");
+            }
+
+            $now = now();
+            $item->archivals()->whereNull('restored_at')->update(['restored_by' => $user->id, 'restored_at' => $now]);
+            $item->forceFill(['archived_at' => null])->save();
+            // Its alerts come back with it.
+            $this->notifications->syncItem($item);
+
+            return $this->load($item);
+        });
+    }
+
+    /** Every archiving of the item, newest first. Empty if it was never archived. */
+    public function archiveHistory(Item $item): Collection
+    {
+        return $item->archivals()->orderByDesc('archived_at')->orderByDesc('id')->get();
     }
 
     /** Loads everything ItemResource reads on one item. */
