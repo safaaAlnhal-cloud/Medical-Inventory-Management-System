@@ -1,9 +1,12 @@
 <?php
 
+use App\Http\Controllers\Items\BarcodeController;
+use App\Http\Controllers\Items\ItemController;
 use Illuminate\Support\Facades\Route;
 
 // Owner: Developer B. Phase 3. BACKEND_HANDOFF.md section 4.4.
 // The batch routes under /inventory belong to Developer A, in batches.php.
+// Every route here is for any signed-in user: storekeepers manage items too.
 //
 // GET    /inventory
 // GET    /inventory/archived
@@ -18,6 +21,17 @@ use Illuminate\Support\Facades\Route;
 // DELETE /inventory/{item}/barcodes/{barcode}
 
 Route::prefix('inventory')->group(function () {
-    //
-});
+    Route::get('/', [ItemController::class, 'index']);
+    Route::get('/archived', [ItemController::class, 'archived']);
+    Route::get('/lookup', [ItemController::class, 'lookup']);
+    Route::post('/', [ItemController::class, 'store']);
+    Route::put('/{item}', [ItemController::class, 'update']);
+    Route::patch('/{item}/archive', [ItemController::class, 'archive']);
+    Route::patch('/{item}/restore', [ItemController::class, 'restore']);
+    Route::get('/{item}/archive-history', [ItemController::class, 'archiveHistory']);
 
+    Route::get('/by-barcode/{code}', [BarcodeController::class, 'show']);
+    Route::post('/{item}/barcodes', [BarcodeController::class, 'store']);
+    // scopeBindings: the barcode must belong to this item, otherwise 404.
+    Route::delete('/{item}/barcodes/{barcode}', [BarcodeController::class, 'destroy'])->scopeBindings();
+});

@@ -99,6 +99,9 @@ const InventoryPage = () => {
   const [itemToArchive, setItemToArchive] = useState(null);
   const [archiving, setArchiving] = useState(false);
   const [archiveError, setArchiveError] = useState('');
+  // Deactivating needs a reason (1-500 characters); its own error shows under the text box.
+  const [archiveReason, setArchiveReason] = useState('');
+  const [archiveReasonError, setArchiveReasonError] = useState('');
   const [restoringId, setRestoringId] = useState(null);
 
   // Category management modal (admin only).
@@ -218,14 +221,18 @@ const InventoryPage = () => {
   const handleArchiveItem = async () => {
     setArchiving(true);
     setArchiveError('');
+    setArchiveReasonError('');
     try {
-      await archiveInventoryItemApi(itemToArchive.id);
+      await archiveInventoryItemApi(itemToArchive.id, { reason: archiveReason });
       showSuccess(`"${itemToArchive.name}" was deactivated. You can reactivate it from the Deactivated view.`);
       setItemToArchive(null);
       reloadItems();
       refreshUnreadCount();
     } catch (err) {
-      setArchiveError(getErrorMessage(err, 'Could not deactivate the item. Please try again.'));
+      const { reason } = getFieldErrors(err);
+      // A reason error sits under the text box; any other error above the buttons.
+      setArchiveReasonError(reason ?? '');
+      setArchiveError(reason ? '' : getErrorMessage(err, 'Could not deactivate the item. Please try again.'));
     } finally {
       setArchiving(false);
     }
@@ -419,7 +426,7 @@ const InventoryPage = () => {
                           <button type="button" onClick={() => openEditModal(item)} className={`p-1.5 rounded-lg ${ACTION_BUTTON_TONE} transition cursor-pointer`} title="Edit Item" aria-label={`Edit ${item.name}`}>
                             <EditIcon />
                           </button>
-                          <button type="button" onClick={() => { setArchiveError(''); setItemToArchive(item); }} className={`p-1.5 rounded-lg ${ACTION_BUTTON_TONE} transition cursor-pointer`} title="Deactivate Item" aria-label={`Deactivate ${item.name}`}>
+                          <button type="button" onClick={() => { setArchiveError(''); setArchiveReason(''); setArchiveReasonError(''); setItemToArchive(item); }} className={`p-1.5 rounded-lg ${ACTION_BUTTON_TONE} transition cursor-pointer`} title="Deactivate Item" aria-label={`Deactivate ${item.name}`}>
                             <Archive className="w-4 h-4" />
                           </button>
                         </div>
@@ -614,7 +621,18 @@ const InventoryPage = () => {
           busy={archiving}
           onConfirm={handleArchiveItem}
           onCancel={() => setItemToArchive(null)}
-        />
+        >
+          <FormField label="Reason *" error={archiveReasonError}>
+            <textarea
+              rows={3}
+              maxLength={500}
+              placeholder="e.g. Discontinued by the supplier"
+              value={archiveReason}
+              onChange={(e) => setArchiveReason(e.target.value)}
+              className={`${inputClassName} resize-none`}
+            />
+          </FormField>
+        </ConfirmDialog>
       )}
     </>
   );

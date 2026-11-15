@@ -2,7 +2,8 @@ import { UNITS } from '../constants/inventory';
 import { EXPIRY_STATUS, getExpiryStatus, getStockStatus } from '../utils/stock';
 import { http } from './apiAxios';
 import { ApiError, fieldError } from './apiError';
-import { commit, matchesSearch, nextId } from './mock/mockDb';
+import { commit, matchesSearch, nextId, requireCurrentUser } from './mock/mockDb';
+import { resolveManufacturer } from './mock/mockManufacturers';
 import { selectArchivedInventory, selectInventory, selectItem, selectNameMaps } from './mock/mockSelectors';
 import { request } from './request';
 
@@ -61,6 +62,12 @@ const mapItem = (dto) => {
     batches: (dto.batches ?? []).map(mapBatch),
     archived: Boolean(dto.archived),
     archivedAt: dto.archivedAt ?? null,
+    // The current archiving (null while active) and how many times the item was archived.
+    archiveReason: dto.archiveReason ?? null,
+    archivedBy: dto.archivedBy ?? null,
+    archiveHistoryCount: Number(dto.archiveHistoryCount) || 0,
+    // Factory barcodes: [{ id, barcode, manufacturerId }]. Archived items keep theirs.
+    barcodes: (dto.barcodes ?? []).map((barcode) => ({ id: barcode.id, barcode: barcode.barcode, manufacturerId: barcode.manufacturerId })),
   };
 };
 
@@ -75,15 +82,32 @@ const assertNameAvailable = (db, name, exceptId = null) => {
   if (duplicate) throw fieldError('name', 'An active item with this name already exists.', 409);
 };
 
+// The same limits as the backend (items.name is 150 characters; minQty is kept well inside its column).
+const MAX_NAME_LENGTH = 150;
+const MAX_MIN_QTY = 1000000;
+
 const validateItem = (db, payload, exceptId = null) => {
   const name = String(payload.name ?? '').trim();
   if (!name) throw fieldError('name', 'Item name is required.');
+  if (name.length > MAX_NAME_LENGTH) throw fieldError('name', `Item name may not be longer than ${MAX_NAME_LENGTH} characters.`);
   if (!db.categories.some((category) => category.id === payload.categoryId)) throw fieldError('categoryId', 'Please choose a valid category.');
   if (!UNITS.includes(payload.unit)) throw fieldError('unit', 'Please choose a valid unit.');
   const minQty = payload.minQty === '' || payload.minQty == null ? NaN : Number(payload.minQty);
   if (!Number.isFinite(minQty) || minQty < 0) throw fieldError('minQty', 'Minimum quantity must be zero or more.');
+  if (!Number.isInteger(minQty)) throw fieldError('minQty', 'Minimum quantity must be a whole number.');
+  if (minQty > MAX_MIN_QTY) throw fieldError('minQty', `Minimum quantity may not be more than ${MAX_MIN_QTY.toLocaleString('en-US')}.`);
   assertNameAvailable(db, name, exceptId);
   return { name, categoryId: payload.categoryId, unit: payload.unit, minQty };
+};
+
+// The same rule as the backend: required (not only spaces) and at most 500 characters.
+const MAX_REASON_LENGTH = 500;
+
+const requireArchiveReason = (reason) => {
+  const trimmed = String(reason ?? '').trim();
+  if (!trimmed) throw fieldError('reason', 'Please enter the reason for deactivating this item.');
+  if (trimmed.length > MAX_REASON_LENGTH) throw fieldError('reason', `The reason may not be longer than ${MAX_REASON_LENGTH} characters.`);
+  return trimmed;
 };
 
 const findItem = (db, id) => {
@@ -92,10 +116,17 @@ const findItem = (db, id) => {
   return item;
 };
 
+// Like the backend: name, category name, unit, active ingredient, each batch in stock (number and
+// manufacturer), and each barcode (code and manufacturer).
 const searchItems = (db, items, search) => {
   const { categoryNames } = selectNameMaps(db);
-  return items.filter((item) =>
-    matchesSearch([item.name, categoryNames.get(item.categoryId), item.unit, ...item.batches.map((batch) => batch.batchNumber)], search));
+  const manufacturerNames = new Map(db.manufacturers.map((manufacturer) => [manufacturer.id, manufacturer.name]));
+  const batchManufacturers = new Map(db.batches.map((batch) => [batch.id, batch.manufacturerId]));
+  return items.filter((item) => matchesSearch([
+    item.name, categoryNames.get(item.categoryId), item.unit, item.activeIngredient,
+    ...item.batches.flatMap((batch) => [batch.batchNumber, manufacturerNames.get(batchManufacturers.get(batch.id))]),
+    ...item.barcodes.flatMap((barcode) => [barcode.barcode, manufacturerNames.get(barcode.manufacturerId)]),
+  ], search));
 };
 
 // ---- Service -----------------------------------------------------------------------------------
@@ -174,12 +205,15 @@ export const updateInventoryItemApi = async (id, payload) => {
 // transactions. It is refused (409) while the item still has stock, so archiving can never make
 // stock or stock value disappear: the remaining stock has to be issued or corrected first.
 // Resolves with the archived item.
-export const archiveInventoryItemApi = async (id) => {
+// Payload: { reason }, required, 1-500 characters (422, field "reason"). Every archiving adds a
+// record to the item's archive history.
+export const archiveInventoryItemApi = async (id, { reason } = {}) => {
   const dto = await request({
     delay: 100,
-    api: () => http.patch(`/inventory/${id}/archive`),
+    api: () => http.patch(`/inventory/${id}/archive`, { reason }),
     mock: (db) => {
       const item = findItem(db, id);
+      const cleanReason = requireArchiveReason(reason);
       if (item.archived) throw new ApiError('This item is already deactivated.', { status: 409 });
       // "Stock" here is everything physically left: available stock and expired stock that
       // has not been disposed of yet. Neither may vanish with the item.
@@ -190,7 +224,12 @@ export const archiveInventoryItemApi = async (id) => {
       if (expiredQuantity > 0) {
         throw new ApiError(`"${item.name}" still has ${expiredQuantity} expired in stock awaiting disposal, so it cannot be deactivated yet. Record the disposal first.`, { status: 409 });
       }
-      Object.assign(item, { archived: true, archivedAt: new Date().toISOString() });
+      const archivedAt = new Date().toISOString();
+      db.itemArchivals.push({
+        id: nextId(db.itemArchivals), itemId: item.id, reason: cleanReason,
+        archivedBy: requireCurrentUser().id, archivedAt, restoredBy: null, restoredAt: null,
+      });
+      Object.assign(item, { archived: true, archivedAt });
       commit();
       return selectItem(db, item);
     },
@@ -210,7 +249,109 @@ export const restoreInventoryItemApi = async (id) => {
       if (db.items.some((other) => !other.archived && other.name.toLowerCase() === item.name.toLowerCase())) {
         throw new ApiError(`An active item named "${item.name}" already exists. Rename that item before reactivating this one.`, { status: 409 });
       }
+      // Complete the open record: the history keeps when the item came back, and who did it.
+      const open = db.itemArchivals.find((record) => record.itemId === item.id && record.restoredAt === null);
+      if (open) Object.assign(open, { restoredBy: requireCurrentUser().id, restoredAt: new Date().toISOString() });
       Object.assign(item, { archived: false, archivedAt: null });
+      commit();
+      return selectItem(db, item);
+    },
+  });
+  return mapItem(dto);
+};
+
+// Archive history record: { id, itemId, reason, archivedBy, archivedAt, restoredBy, restoredAt }.
+// restoredBy / restoredAt are null while the item is still archived.
+const mapArchival = (dto) => ({
+  id: dto.id,
+  itemId: dto.itemId,
+  reason: dto.reason,
+  archivedBy: dto.archivedBy,
+  archivedAt: dto.archivedAt,
+  restoredBy: dto.restoredBy ?? null,
+  restoredAt: dto.restoredAt ?? null,
+});
+
+// Every archiving of the item, newest first. [] if it was never archived.
+export const getItemArchiveHistoryApi = async (id) => {
+  const dtos = await request({
+    api: () => http.get(`/inventory/${id}/archive-history`),
+    mock: (db) => {
+      findItem(db, id);
+      return db.itemArchivals
+        .filter((record) => record.itemId === id)
+        .sort((a, b) => b.archivedAt.localeCompare(a.archivedAt) || b.id - a.id);
+    },
+  });
+  return dtos.map(mapArchival);
+};
+
+// ---- Factory barcodes ----------------------------------------------------------------------------
+// A barcode is unique in the whole system (archived items included) and links an item to one
+// manufacturer. Barcodes are compared exactly. An archived item's barcodes cannot change (409).
+
+const MAX_BARCODE_LENGTH = 64;
+const BARCODE_ARCHIVED = 'This item is deactivated. Reactivate it before changing its barcodes.';
+
+const requireBarcode = (value) => {
+  const barcode = String(value ?? '').trim();
+  if (!barcode) throw fieldError('barcode', 'Enter the barcode.');
+  if (barcode.length > MAX_BARCODE_LENGTH) throw fieldError('barcode', `The barcode may not be longer than ${MAX_BARCODE_LENGTH} characters.`);
+  if (/\s/.test(barcode)) throw fieldError('barcode', 'The barcode may not contain spaces.');
+  return barcode;
+};
+
+// What a scan found: { item: { id, name, unit, archived }, manufacturerId, barcode }.
+// Fails with 404 when no item has the barcode (the Incoming form then offers to link it).
+export const getItemByBarcodeApi = async (code) => {
+  const dto = await request({
+    api: () => http.get(`/inventory/by-barcode/${encodeURIComponent(code)}`),
+    mock: (db) => {
+      const found = db.itemBarcodes.find((barcode) => barcode.barcode === String(code ?? '').trim());
+      if (!found) throw new ApiError('The requested record was not found.', { status: 404 });
+      const item = findItem(db, found.itemId);
+      return {
+        item: { id: item.id, name: item.name, unit: item.unit, archived: Boolean(item.archived) },
+        manufacturerId: found.manufacturerId,
+        barcode: found.barcode,
+      };
+    },
+  });
+  return { item: mapLookupEntry(dto.item), manufacturerId: dto.manufacturerId, barcode: dto.barcode };
+};
+
+// Payload: { barcode, manufacturer } (the manufacturer's NAME; a new name creates it).
+// Resolves with the item, its new barcode included.
+export const linkBarcodeApi = async (itemId, { barcode, manufacturer }) => {
+  const dto = await request({
+    api: () => http.post(`/inventory/${itemId}/barcodes`, { barcode, manufacturer }),
+    mock: (db) => {
+      const item = findItem(db, itemId);
+      const code = requireBarcode(barcode);
+      if (!String(manufacturer ?? '').trim()) throw fieldError('manufacturer', 'Enter the manufacturer of this barcode.');
+      if (item.archived) throw new ApiError(BARCODE_ARCHIVED, { status: 409 });
+      const owner = db.itemBarcodes.find((existing) => existing.barcode === code);
+      if (owner) throw fieldError('barcode', `This barcode is already linked to "${findItem(db, owner.itemId).name}".`, 409);
+      // Last, once every rule has passed: a refused link leaves no new manufacturer behind.
+      const { id: manufacturerId } = resolveManufacturer(db, manufacturer);
+      db.itemBarcodes.push({ id: nextId(db.itemBarcodes), itemId: item.id, manufacturerId, barcode: code });
+      commit();
+      return selectItem(db, item);
+    },
+  });
+  return mapItem(dto);
+};
+
+// Resolves with the item without that barcode. 404 if the barcode is not this item's.
+export const unlinkBarcodeApi = async (itemId, barcodeId) => {
+  const dto = await request({
+    api: () => http.delete(`/inventory/${itemId}/barcodes/${barcodeId}`),
+    mock: (db) => {
+      const item = findItem(db, itemId);
+      const barcode = db.itemBarcodes.find((candidate) => candidate.id === barcodeId && candidate.itemId === itemId);
+      if (!barcode) throw new ApiError('The requested record was not found.', { status: 404 });
+      if (item.archived) throw new ApiError(BARCODE_ARCHIVED, { status: 409 });
+      db.itemBarcodes = db.itemBarcodes.filter((candidate) => candidate.id !== barcodeId);
       commit();
       return selectItem(db, item);
     },

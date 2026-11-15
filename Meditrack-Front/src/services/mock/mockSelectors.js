@@ -187,7 +187,19 @@ export const selectItem = (db, item, now = new Date()) => {
     batches: inStock,
     archived: Boolean(item.archived),
     archivedAt: item.archivedAt ?? null,
+    ...selectArchiveFields(db, item),
+    activeIngredient: item.activeIngredient ?? null,
+    barcodes: (db.itemBarcodes ?? [])
+      .filter((barcode) => barcode.itemId === item.id)
+      .map((barcode) => ({ id: barcode.id, barcode: barcode.barcode, manufacturerId: barcode.manufacturerId })),
   };
+};
+
+// The current archiving (reason, who) and the number of archivings, like the backend's Item.
+const selectArchiveFields = (db, item) => {
+  const records = (db.itemArchivals ?? []).filter((record) => record.itemId === item.id);
+  const open = item.archived ? records.find((record) => record.restoredAt === null) : null;
+  return { archiveReason: open?.reason ?? null, archivedBy: open?.archivedBy ?? null, archiveHistoryCount: records.length };
 };
 
 // ---- Archived items: MOCK BUSINESS LOGIC -----------------------------------------------------

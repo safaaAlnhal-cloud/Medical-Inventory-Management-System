@@ -12,9 +12,13 @@ const assertNameAvailable = (db, name, exceptId = null) => {
   if (taken) throw fieldError('name', 'A category with this name already exists.', 409);
 };
 
+// The categories table holds names of up to 100 characters; the backend refuses longer ones (422).
+const MAX_NAME_LENGTH = 100;
+
 const requireName = (name) => {
   const trimmed = String(name ?? '').trim();
   if (!trimmed) throw fieldError('name', 'Category name is required.');
+  if (trimmed.length > MAX_NAME_LENGTH) throw fieldError('name', `Category name may not be longer than ${MAX_NAME_LENGTH} characters.`);
   return trimmed;
 };
 
