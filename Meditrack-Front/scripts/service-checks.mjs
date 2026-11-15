@@ -208,6 +208,15 @@ try {
     assert.equal((await auth.loginApi({ email: STOREKEEPER.email, password: 'another-pass' })).user.id, 2);
   });
 
+  check('items: the name is at most 150 characters and minQty a whole number within limits', async () => {
+    await signIn(STOREKEEPER);
+    const base = { name: 'Gauze Pads', categoryId: 2, unit: 'pack', minQty: 1 };
+    await rejection(inventory.createInventoryItemApi({ ...base, name: 'a'.repeat(151) }), 422, 'name');
+    await rejection(inventory.createInventoryItemApi({ ...base, minQty: 1.5 }), 422, 'minQty');
+    await rejection(inventory.createInventoryItemApi({ ...base, minQty: 1000001 }), 422, 'minQty');
+    assert.equal((await inventory.createInventoryItemApi(base)).quantity, 0);
+  });
+
   // ---- Archiving --------------------------------------------------------------------------------
 
   check('archive: refused while the item has stock, and nothing changes', async () => {

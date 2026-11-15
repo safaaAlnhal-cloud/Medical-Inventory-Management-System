@@ -955,6 +955,18 @@ list are optional.
 | Planned: `barcode` is not used by any item, active or archived | `409` | `barcode` |
 | Planned: `manufacturer` (barcode link) is required | `422` | `manufacturer` |
 
+**Implemented** (backend and mock): `GET /inventory`, `/inventory/archived`, `/inventory/lookup`,
+`POST /inventory` (`201`) and `PUT /inventory/:id`, with every rule in the table above. Also:
+`name` is at most 150 characters, and `minQty` is a whole number from 0 to 1,000,000 (`422`,
+field `minQty`). Backend only, until the frontend uses them:
+- The `Item` already carries the planned fields: the six details, `barcodes`, `archiveReason`,
+  `archivedBy`, `archiveHistoryCount`, and `manufacturerId` / `manufacturingDate` on each batch.
+- `POST` / `PUT` accept the six detail fields. A detail that is not sent stays as it is; `null` or
+  `""` clears it. Too long gives `422` on that field ("This field may not be longer than N characters.").
+- `PUT` ignores anything else sent with it (`quantity`, `avgUnitCost`, `archived`...).
+- Search still matches name, category name, unit and the number of a batch in stock. Barcodes,
+  manufacturer names and `activeIngredient` come with the barcode endpoints.
+
 **Planned, frontend:** clicking an item opens an **Item Details** modal that replaces today's
 batch modal: the item's details and barcodes at the top, then the batch list as today (batch
 number, manufacturer, manufacturing date, expiry date, supplier, quantity, status, Dispose

@@ -75,13 +75,20 @@ const assertNameAvailable = (db, name, exceptId = null) => {
   if (duplicate) throw fieldError('name', 'An active item with this name already exists.', 409);
 };
 
+// The same limits as the backend (items.name is 150 characters; minQty is kept well inside its column).
+const MAX_NAME_LENGTH = 150;
+const MAX_MIN_QTY = 1000000;
+
 const validateItem = (db, payload, exceptId = null) => {
   const name = String(payload.name ?? '').trim();
   if (!name) throw fieldError('name', 'Item name is required.');
+  if (name.length > MAX_NAME_LENGTH) throw fieldError('name', `Item name may not be longer than ${MAX_NAME_LENGTH} characters.`);
   if (!db.categories.some((category) => category.id === payload.categoryId)) throw fieldError('categoryId', 'Please choose a valid category.');
   if (!UNITS.includes(payload.unit)) throw fieldError('unit', 'Please choose a valid unit.');
   const minQty = payload.minQty === '' || payload.minQty == null ? NaN : Number(payload.minQty);
   if (!Number.isFinite(minQty) || minQty < 0) throw fieldError('minQty', 'Minimum quantity must be zero or more.');
+  if (!Number.isInteger(minQty)) throw fieldError('minQty', 'Minimum quantity must be a whole number.');
+  if (minQty > MAX_MIN_QTY) throw fieldError('minQty', `Minimum quantity may not be more than ${MAX_MIN_QTY.toLocaleString('en-US')}.`);
   assertNameAvailable(db, name, exceptId);
   return { name, categoryId: payload.categoryId, unit: payload.unit, minQty };
 };
