@@ -525,8 +525,9 @@ display text only. The data model, service functions and endpoints keep the word
 
 **Implemented** (backend and mock): archive with a reason, restore, the history endpoint, and
 `archiveReason` / `archivedBy` / `archiveHistoryCount` on the `Item`. The Deactivate dialog has
-the required Reason box. **Still planned in the frontend:** showing the reason in the Deactivated
-list, and the History button and modal. Archive and restore lock the item's row, so a receipt
+the required Reason box. **Implemented** (frontend): the Deactivated list shows the reason and who
+deactivated the item, and a History button (when `archiveHistoryCount > 0`, in that list and in the
+Item Details modal) opens the records in a modal (`src/components/inventory/ArchiveHistoryModal.jsx`). Archive and restore lock the item's row, so a receipt
 recorded at the same moment cannot slip in between the stock check and the archiving.
 
 Until the backend exists this lives in `archiveInventoryItemApi` / `restoreInventoryItemApi` in
@@ -973,8 +974,11 @@ field `minQty`). Backend only, until the frontend uses them:
 - Search matches name, category name, unit, `activeIngredient`, the number and manufacturer of a
   batch in stock, and each barcode and its manufacturer.
 
-**Planned, frontend:** clicking an item opens an **Item Details** modal that replaces today's
-batch modal: the item's details and barcodes at the top, then the batch list as today (batch
+**Implemented, frontend** (`src/components/inventory/ItemDetailsModal.jsx`): the View button opens an
+**Item Details** modal that replaces the old batch modal (also from the Deactivated list, read-only there).
+The item form has the six optional details. The modal lists the barcodes with their manufacturer
+and adds / removes them (not on a deactivated item). The Scan input and the camera are still planned.
+The modal shows the item's details and barcodes at the top, then the batch list as today (batch
 number, manufacturer, manufacturing date, expiry date, supplier, quantity, status, Dispose
 button). It needs no new endpoint: everything is on the `Item`.
 

@@ -155,6 +155,8 @@ export const selectItem = (db, item, now = new Date()) => {
       ...selectBatchQuantities(remaining.get(batch.id) || 0, batch.expiryDate, now),
       unitCost: batch.unitCost,
       supplier: batch.supplier,
+      manufacturerId: batch.manufacturerId ?? null,
+      manufacturingDate: batch.manufacturingDate ?? null,
       expiryDate: batch.expiryDate ?? null,
     }))
     .filter((batch) => batch.quantity > 0);
@@ -189,6 +191,11 @@ export const selectItem = (db, item, now = new Date()) => {
     archivedAt: item.archivedAt ?? null,
     ...selectArchiveFields(db, item),
     activeIngredient: item.activeIngredient ?? null,
+    strength: item.strength ?? null,
+    dosageForm: item.dosageForm ?? null,
+    storageConditions: item.storageConditions ?? null,
+    uses: item.uses ?? null,
+    description: item.description ?? null,
     barcodes: (db.itemBarcodes ?? [])
       .filter((barcode) => barcode.itemId === item.id)
       .map((barcode) => ({ id: barcode.id, barcode: barcode.barcode, manufacturerId: barcode.manufacturerId })),

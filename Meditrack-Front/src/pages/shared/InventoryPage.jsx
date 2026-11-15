@@ -1,6 +1,8 @@
 import React, { useCallback, useMemo, useState } from 'react';
-import { Archive, ArchiveRestore, Filter, Plus, FolderCog, Edit2, Trash2, Calendar, DollarSign, Package, Truck, Hash } from 'lucide-react';
+import { Archive, ArchiveRestore, Filter, Plus, FolderCog, Edit2, Trash2, History } from 'lucide-react';
 import { ACTION_BUTTON_TONE, EditIcon, ViewIcon } from '../../components/common/ActionIcons';
+import ArchiveHistoryModal from '../../components/inventory/ArchiveHistoryModal';
+import ItemDetailsModal from '../../components/inventory/ItemDetailsModal';
 import ConfirmDialog from '../../components/common/ConfirmDialog';
 import { TableState } from '../../components/common/DataState';
 import FormField, { inputClassName } from '../../components/common/FormField';
@@ -22,19 +24,20 @@ import {
   createInventoryItemApi,
   getArchivedInventoryItemsApi,
   getInventoryItemsApi,
+  ITEM_DETAIL_LIMITS,
   restoreInventoryItemApi,
   updateInventoryItemApi,
 } from '../../services/inventoryApi';
+import { getManufacturersApi } from '../../services/manufacturersApi';
 import { createDisposalTransactionApi } from '../../services/transactionsApi';
+import { getUserDirectoryApi } from '../../services/usersApi';
 import { toISODate } from '../../utils/dates';
 import { EMPTY_VALUE, formatCurrency, formatDate, formatNumber, formatQuantity, formatUnit } from '../../utils/formatters';
 import { resolveId, sameId } from '../../utils/ids';
-import { EXPIRY_STATUS, STATUS_LABELS, STOCK_STATUS } from '../../utils/stock';
+import { STATUS_LABELS, STOCK_STATUS } from '../../utils/stock';
 
 const EMPTY_LIST = [];
 const DEFAULT_PAGE_SIZE = 10;
-// How many batches the batch modal shows before "View All" is pressed.
-const BATCH_PREVIEW_COUNT = 3;
 const VIEWS = { ACTIVE: 'active', ARCHIVED: 'archived' };
 const STOCK_STATUS_OPTIONS = [STOCK_STATUS.AVAILABLE, STOCK_STATUS.LOW, STOCK_STATUS.OUT];
 const STATUS_CLASSES = {
@@ -42,19 +45,17 @@ const STATUS_CLASSES = {
   [STOCK_STATUS.LOW]: 'text-amber-700 bg-amber-50',
   [STOCK_STATUS.OUT]: 'text-red-700 bg-red-50',
 };
-// The status pill on a batch: a batch with no expiry status is simply valid.
-const BATCH_STATUS_CLASSES = {
-  [EXPIRY_STATUS.EXPIRED]: 'text-red-700 bg-red-50',
-  [EXPIRY_STATUS.EXPIRING_SOON]: 'text-amber-700 bg-amber-50',
-};
-const VALID_BATCH_CLASS = 'text-emerald-700 bg-emerald-50';
-const isExpiredBatch = (batch) => batch.expiryStatus === EXPIRY_STATUS.EXPIRED;
-
-const EXPIRY_TEXT_CLASSES = {
-  [EXPIRY_STATUS.EXPIRED]: 'text-red-600',
-  [EXPIRY_STATUS.EXPIRING_SOON]: 'text-amber-600',
-};
-const EMPTY_ITEM_FORM = { name: '', categoryId: '', unit: UNITS[0], minQty: '20' };
+// The six optional details in the item form: [field, label, placeholder, long text].
+const DETAIL_FIELDS = [
+  ['activeIngredient', 'Active Ingredient', 'e.g. Paracetamol', false],
+  ['strength', 'Strength', 'e.g. 500 mg', false],
+  ['dosageForm', 'Dosage Form', 'e.g. Tablet', false],
+  ['storageConditions', 'Storage Conditions', 'e.g. Store below 25°C', false],
+  ['uses', 'Uses', 'e.g. Pain and fever relief', true],
+  ['description', 'Description', 'Anything else worth knowing', true],
+];
+const EMPTY_DETAILS = Object.fromEntries(DETAIL_FIELDS.map(([field]) => [field, '']));
+const EMPTY_ITEM_FORM = { name: '', categoryId: '', unit: UNITS[0], minQty: '20', ...EMPTY_DETAILS };
 const NO_ERRORS = {};
 
 const InventoryPage = () => {
@@ -74,6 +75,10 @@ const InventoryPage = () => {
   );
   const { data: items, loading, error, reload: reloadItems } = useAsyncData(loadItems, EMPTY_LIST);
   const { data: categories, error: categoriesError, reload: reloadCategories } = useAsyncData(getCategoriesApi, EMPTY_LIST);
+  // Names for the ids on items: who deactivated an item, and who made a batch or a barcode.
+  const { data: manufacturers, reload: reloadManufacturers } = useAsyncData(getManufacturersApi, EMPTY_LIST);
+  const { data: users } = useAsyncData(getUserDirectoryApi, EMPTY_LIST);
+  const userNames = useMemo(() => new Map(users.map((user) => [user.id, user.name])), [users]);
 
   const [selectedCategory, setSelectedCategory] = useState('all');
   const [selectedStatus, setSelectedStatus] = useState('all');
@@ -86,11 +91,12 @@ const InventoryPage = () => {
   const [itemFieldErrors, setItemFieldErrors] = useState(NO_ERRORS);
   const [savingItem, setSavingItem] = useState(false);
 
-  // The batch modal: the item being viewed, and whether its full batch list is expanded.
-  // Only the id is kept: the item itself is always read from the loaded list, so the modal
-  // shows fresh quantities as soon as the list is reloaded (for example after a disposal).
+  // The Item Details modal: the item being viewed. Only the id is kept: the item itself is
+  // always read from the loaded list, so the modal shows fresh figures and barcodes as soon as
+  // the list is reloaded (for example after a disposal or a new barcode).
   const [viewingItemId, setViewingItemId] = useState(null);
-  const [showAllBatches, setShowAllBatches] = useState(false);
+  // The item whose deactivation history is open, or null.
+  const [historyItem, setHistoryItem] = useState(null);
 
   // The expired batch whose disposal is being confirmed: { item, batch }, or null.
   const [batchToDispose, setBatchToDispose] = useState(null);
@@ -129,23 +135,14 @@ const InventoryPage = () => {
 
   useCreateParam(openAddModal);
 
-  // Every item opens with the short list, whatever was expanded for the item viewed before.
-  const openBatchModal = (item) => {
-    setShowAllBatches(false);
-    setViewingItemId(item.id);
-  };
-  const closeBatchModal = () => setViewingItemId(null);
+  const closeDetailsModal = () => setViewingItemId(null);
   const viewingItem = viewingItemId === null ? null : items.find((item) => sameId(item.id, viewingItemId)) ?? null;
 
-  // The batches come from the item as the service returned it; this only decides how many of
-  // them are on screen. Expanding shows the same list in full, so each batch appears once.
-  // Expired batches are listed first so the ones that need action are never hidden behind "View All".
-  const itemBatches = useMemo(() => {
-    const batches = viewingItem?.batches ?? EMPTY_LIST;
-    return [...batches.filter(isExpiredBatch), ...batches.filter((batch) => !isExpiredBatch(batch))];
-  }, [viewingItem]);
-  const visibleBatches = showAllBatches ? itemBatches : itemBatches.slice(0, BATCH_PREVIEW_COUNT);
-  const hiddenBatchCount = itemBatches.length - visibleBatches.length;
+  // A barcode was added or removed in the details modal: a new manufacturer may exist too.
+  const handleItemChanged = () => {
+    reloadItems();
+    reloadManufacturers();
+  };
 
   // Disposing from a batch row removes everything that batch has left, today. The service
   // records it as an "Expired Stock Disposal" transaction and enforces every rule (the batch
@@ -169,7 +166,11 @@ const InventoryPage = () => {
   };
 
   const openEditModal = (item) => {
-    setItemForm({ name: item.name, categoryId: String(item.categoryId), unit: item.unit, minQty: String(item.minQty) });
+    setItemForm({
+      name: item.name, categoryId: String(item.categoryId), unit: item.unit, minQty: String(item.minQty),
+      // A detail that is not set (null) shows as an empty box.
+      ...Object.fromEntries(DETAIL_FIELDS.map(([field]) => [field, item[field] ?? ''])),
+    });
     setItemError('');
     setItemFieldErrors(NO_ERRORS);
     setItemModal({ item });
@@ -190,6 +191,8 @@ const InventoryPage = () => {
       categoryId: resolveId(categories, itemForm.categoryId || defaultCategoryId),
       unit: itemForm.unit,
       minQty: itemForm.minQty === '' ? null : Number(itemForm.minQty),
+      // Always sent, so clearing a box clears the detail (an empty one is stored as "not set").
+      ...Object.fromEntries(DETAIL_FIELDS.map(([field]) => [field, itemForm[field]])),
     };
 
     setSavingItem(true);
@@ -365,6 +368,7 @@ const InventoryPage = () => {
                     <th className="py-3.5 px-3 md:px-6">Unit</th>
                     <th className="py-3.5 px-3 md:px-6">Last Avg. Price</th>
                     <th className="py-3.5 px-3 md:px-6">Deactivated On</th>
+                    <th className="py-3.5 px-3 md:px-6">Reason</th>
                     <th className="py-3.5 px-3 md:px-6 text-center">Actions</th>
                   </tr>
                 ) : (
@@ -382,7 +386,7 @@ const InventoryPage = () => {
               </thead>
               <tbody className="divide-y divide-slate-100 text-xs font-semibold">
                 <TableState
-                  colSpan={isArchivedView ? 6 : 8}
+                  colSpan={isArchivedView ? 7 : 8}
                   loading={loading}
                   error={error}
                   onRetry={reloadItems}
@@ -397,8 +401,21 @@ const InventoryPage = () => {
                       <td className="py-4 px-3 md:px-6 text-slate-600">{formatUnit(item.unit)}</td>
                       <td className="py-4 px-3 md:px-6 font-bold text-emerald-700">{formatCurrency(item.avgUnitCost)}</td>
                       <td className="py-4 px-3 md:px-6 text-slate-500">{formatDate(item.archivedAt)}</td>
+                      <td className="py-4 px-3 md:px-6 text-slate-600 max-w-56">
+                        {/* Why, and by whom. An item deactivated before reasons existed has none. */}
+                        <span className="block line-clamp-2 break-words" title={item.archiveReason ?? undefined}>{item.archiveReason ?? EMPTY_VALUE}</span>
+                        {item.archivedBy !== null && <span className="block text-[10px] font-bold text-slate-400">by {userNames.get(item.archivedBy) ?? EMPTY_VALUE}</span>}
+                      </td>
                       <td className="py-4 px-3 md:px-6">
-                        <div className="flex items-center justify-center">
+                        <div className="flex items-center justify-center gap-2">
+                          <button type="button" onClick={() => setViewingItemId(item.id)} className={`p-1.5 rounded-lg ${ACTION_BUTTON_TONE} transition cursor-pointer`} title="View Details" aria-label={`View details of ${item.name}`}>
+                            <ViewIcon />
+                          </button>
+                          {item.archiveHistoryCount > 0 && (
+                            <button type="button" onClick={() => setHistoryItem(item)} className={`p-1.5 rounded-lg ${ACTION_BUTTON_TONE} transition cursor-pointer`} title="Deactivation History" aria-label={`Deactivation history of ${item.name}`}>
+                              <History className="w-4 h-4" />
+                            </button>
+                          )}
                           <button type="button" disabled={restoringId !== null} onClick={() => handleRestoreItem(item)} className="px-3 py-1.5 bg-emerald-50 hover:bg-emerald-100 rounded-lg text-emerald-700 text-xs font-bold transition cursor-pointer flex items-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed" aria-label={`Reactivate ${item.name}`}>
                             <ArchiveRestore className="w-4 h-4" /> {sameId(restoringId, item.id) ? 'Reactivating...' : 'Reactivate'}
                           </button>
@@ -420,7 +437,7 @@ const InventoryPage = () => {
                       <td className="py-4 px-3 md:px-6"><span className={`px-2.5 py-1 rounded-md text-[11px] font-bold ${STATUS_CLASSES[item.status]}`}>{STATUS_LABELS[item.status]}</span></td>
                       <td className="py-4 px-3 md:px-6">
                         <div className="flex items-center justify-center gap-2 text-xs font-bold">
-                          <button type="button" onClick={() => openBatchModal(item)} className={`p-1.5 rounded-lg ${ACTION_BUTTON_TONE} transition cursor-pointer`} title="View Batches" aria-label={`View batches of ${item.name}`}>
+                          <button type="button" onClick={() => setViewingItemId(item.id)} className={`p-1.5 rounded-lg ${ACTION_BUTTON_TONE} transition cursor-pointer`} title="View Details" aria-label={`View details of ${item.name}`}>
                             <ViewIcon />
                           </button>
                           <button type="button" onClick={() => openEditModal(item)} className={`p-1.5 rounded-lg ${ACTION_BUTTON_TONE} transition cursor-pointer`} title="Edit Item" aria-label={`Edit ${item.name}`}>
@@ -448,95 +465,20 @@ const InventoryPage = () => {
         </div>
       </main>
 
-      {/* Hidden while a disposal is being confirmed, so only one dialog is open at a time. */}
-      {viewingItem && !batchToDispose && (
-        <Modal
-          maxWidth="max-w-2xl"
-          spacing="space-y-6"
-          titleClassName="text-lg font-extrabold text-[#115e54] font-noto-serif"
-          title={viewingItem.name}
-          subtitle={(
-            <p className="text-xs text-slate-500 font-semibold mt-0.5">
-              Category: <span className="text-slate-700 font-bold">{categoryLabel(viewingItem.categoryId)}</span> | Available: <span className="text-slate-900 font-bold">{formatNumber(viewingItem.quantity)} {formatUnit(viewingItem.unit)}</span>
-              {viewingItem.expiredQuantity > 0 && <> | Expired, awaiting disposal: <span className="text-red-600 font-bold">{formatNumber(viewingItem.expiredQuantity)}</span></>}
-              {viewingItem.disposedQuantity > 0 && <> | Disposed: <span className="text-slate-700 font-bold">{formatNumber(viewingItem.disposedQuantity)}</span></>}
-            </p>
-          )}
-          onClose={closeBatchModal}
-          footer={(
-            <div className="pt-2 flex justify-end">
-              <button type="button" onClick={closeBatchModal} className="px-6 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-xl transition cursor-pointer">
-                Close
-              </button>
-            </div>
-          )}
-        >
-          <div className="space-y-3">
-            <h4 className="text-[11px] font-extrabold text-slate-400 uppercase tracking-wider">
-              Batches in Stock{viewingItem.batches.length > 0 ? ` (${viewingItem.batches.length})` : ''}
-            </h4>
-
-            {viewingItem.batches.length === 0 ? (
-              <div className="p-10 text-center bg-slate-50 rounded-2xl border border-slate-100 text-slate-400 text-xs font-semibold">
-                No batches in stock for this item yet.
-              </div>
-            ) : (
-              <div className="space-y-3">
-                {visibleBatches.map((batch) => (
-                  <div key={batch.id} className="card-hover bg-slate-50 hover:bg-slate-100/60 transition p-4 rounded-2xl border border-slate-200/70 flex flex-col sm:flex-row sm:items-center justify-between gap-4 shadow-sm">
-                    <div className="space-y-1.5">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <span className="px-2.5 py-1 bg-[#115e54]/10 text-[#115e54] rounded-lg text-xs font-bold flex items-center gap-1">
-                          <Hash className="w-3.5 h-3.5" /> {batch.batchNumber}
-                        </span>
-                        <span className="text-xs text-slate-500 font-semibold flex items-center gap-1">
-                          <Truck className="w-3.5 h-3.5 text-slate-400" /> {batch.supplier || EMPTY_VALUE}
-                        </span>
-                        <span className={`px-2.5 py-1 rounded-md text-[11px] font-bold ${BATCH_STATUS_CLASSES[batch.expiryStatus] ?? VALID_BATCH_CLASS}`}>
-                          {batch.expiryStatus ? STATUS_LABELS[batch.expiryStatus] : 'Valid'}
-                        </span>
-                      </div>
-                      <div className="flex flex-wrap items-center gap-4 text-xs font-semibold text-slate-600 pt-1">
-                        <span className="flex items-center gap-1">
-                          <Package className="w-3.5 h-3.5 text-slate-400" /> Qty: <strong className="text-slate-900">{formatNumber(batch.quantity)}</strong>
-                        </span>
-                        <span className="flex items-center gap-1">
-                          <DollarSign className="w-3.5 h-3.5 text-emerald-600" /> Unit Cost: <strong className="text-emerald-700">{formatCurrency(batch.unitCost)}</strong>
-                        </span>
-                      </div>
-                    </div>
-
-                    <div className="flex items-center gap-2 self-end sm:self-auto shrink-0">
-                      <div className="flex items-center gap-2 bg-white px-3 py-2 rounded-xl border border-slate-200/60 shadow-2xs">
-                        <Calendar className="w-4 h-4 text-amber-600" />
-                        <div className="text-right">
-                          <span className="block text-[10px] font-bold text-slate-400 uppercase">Expiry Date</span>
-                          <span className={`text-xs font-bold ${EXPIRY_TEXT_CLASSES[batch.expiryStatus] ?? 'text-slate-700'}`}>{formatDate(batch.expiryDate)}</span>
-                        </div>
-                      </div>
-                      {/* Only an expired batch can be disposed of, and each one has its own button. */}
-                      {isExpiredBatch(batch) && (
-                        <button type="button" onClick={() => { setDisposeError(''); setBatchToDispose({ item: viewingItem, batch }); }} className="px-3 py-2 bg-red-600 hover:bg-red-700 text-white text-xs font-bold rounded-xl transition cursor-pointer flex items-center gap-1.5" aria-label={`Dispose of expired batch ${batch.batchNumber}`}>
-                          <Trash2 className="w-3.5 h-3.5" /> Dispose
-                        </button>
-                      )}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-
-            {/* Only offered when some batches are not on screen; it reveals the rest in place. */}
-            {hiddenBatchCount > 0 && (
-              <div className="flex justify-center pt-1">
-                <button type="button" onClick={() => setShowAllBatches(true)} className="px-5 py-2 bg-white hover:bg-slate-100 text-slate-700 border border-slate-200 text-xs font-bold rounded-xl shadow-sm transition cursor-pointer">
-                  View All ({viewingItem.batches.length} batches)
-                </button>
-              </div>
-            )}
-          </div>
-        </Modal>
+      {/* Hidden while a disposal is being confirmed or the history is open, so only one dialog shows at a time. */}
+      {viewingItem && !batchToDispose && !historyItem && (
+        <ItemDetailsModal
+          item={viewingItem}
+          categoryName={categoryLabel(viewingItem.categoryId)}
+          manufacturers={manufacturers}
+          onClose={closeDetailsModal}
+          onDispose={(batch) => { setDisposeError(''); setBatchToDispose({ item: viewingItem, batch }); }}
+          onShowHistory={() => setHistoryItem(viewingItem)}
+          onChanged={handleItemChanged}
+        />
       )}
+
+      {historyItem && <ArchiveHistoryModal item={historyItem} userNames={userNames} onClose={() => setHistoryItem(null)} />}
 
       {isCategoryModalOpen && role === ROLES.ADMIN && (
         <Modal title="Manage Categories" titleClassName="text-base font-bold text-slate-900 font-noto-serif" onClose={closeCategoryModal}>
@@ -592,6 +534,23 @@ const InventoryPage = () => {
                 <input type="number" min="0" step="1" required value={itemForm.minQty} onChange={(e) => setItemForm({ ...itemForm, minQty: e.target.value })} className={inputClassName} />
               </FormField>
             </div>
+            {/* Optional, because the inventory also holds supplies (gloves, cotton), not only medicines. */}
+            <details className="group" open={DETAIL_FIELDS.some(([field]) => itemForm[field])}>
+              <summary className="text-[11px] font-bold text-[#115e54] uppercase cursor-pointer select-none">Item details (optional)</summary>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-3">
+                {DETAIL_FIELDS.map(([field, label, placeholder, long]) => (
+                  <div key={field} className={long ? 'sm:col-span-2' : ''}>
+                    <FormField label={label} error={itemFieldErrors[field]}>
+                      {long ? (
+                        <textarea rows={2} maxLength={ITEM_DETAIL_LIMITS[field]} placeholder={placeholder} value={itemForm[field]} onChange={(e) => setItemForm({ ...itemForm, [field]: e.target.value })} className={`${inputClassName} resize-none`} />
+                      ) : (
+                        <input type="text" maxLength={ITEM_DETAIL_LIMITS[field]} placeholder={placeholder} value={itemForm[field]} onChange={(e) => setItemForm({ ...itemForm, [field]: e.target.value })} className={inputClassName} />
+                      )}
+                    </FormField>
+                  </div>
+                ))}
+              </div>
+            </details>
             <div className="pt-3 flex justify-end gap-2">
               <button type="button" onClick={() => setItemModal(null)} className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-xl transition cursor-pointer">Cancel</button>
               <button type="submit" disabled={savingItem} className="px-5 py-2 bg-[#115e54] hover:bg-[#0e4f47] text-white text-xs font-bold rounded-xl transition cursor-pointer disabled:opacity-50">{itemModal.item ? 'Save Changes' : 'Add Item'}</button>

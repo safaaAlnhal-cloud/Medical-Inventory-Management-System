@@ -349,6 +349,20 @@ try {
     assert.deepEqual((await inventory.unlinkBarcodeApi(item.id, linked.barcodes[0].id)).barcodes, []);
   });
 
+  check('items: the six details are saved, cleared when empty and kept when not sent', async () => {
+    await signIn(STOREKEEPER);
+    const base = { name: 'Detail Item', categoryId: 1, unit: 'box', minQty: 0 };
+    await rejection(inventory.createInventoryItemApi({ ...base, strength: 'x'.repeat(51) }), 422, 'strength');
+    const created = await inventory.createInventoryItemApi({ ...base, strength: ' 500 mg ', uses: 'Pain', description: '' });
+    assert.equal(created.strength, '500 mg');
+    assert.equal(created.description, null);
+    const kept = await inventory.updateInventoryItemApi(created.id, { ...base, minQty: 5 });
+    assert.equal(kept.uses, 'Pain', 'a detail that is not sent stays');
+    const cleared = await inventory.updateInventoryItemApi(created.id, { ...base, uses: '  ' });
+    assert.equal(cleared.uses, null, 'an empty detail is cleared');
+    assert.equal(cleared.strength, '500 mg');
+  });
+
   check('categories: cannot be deleted while active or archived items use them', async () => {
     await signIn(ADMIN);
     const category = await categories.createCategoryApi({ name: 'Temporary' });
