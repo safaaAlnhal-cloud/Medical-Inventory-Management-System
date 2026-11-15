@@ -323,6 +323,32 @@ try {
     await rejection(inventory.getItemArchiveHistoryApi(9999), 404);
   });
 
+  check('barcodes: link, scan, search and remove, unique everywhere and frozen while archived', async () => {
+    await signIn(STOREKEEPER);
+    const item = await inventory.createInventoryItemApi({ name: 'Barcode Item', categoryId: 2, unit: 'box', minQty: 0 });
+    await rejection(inventory.linkBarcodeApi(item.id, { barcode: '625 123', manufacturer: 'PharmaCo' }), 422, 'barcode');
+    await rejection(inventory.linkBarcodeApi(item.id, { barcode: '625123', manufacturer: '  ' }), 422, 'manufacturer');
+
+    const linked = await inventory.linkBarcodeApi(item.id, { barcode: ' 625123 ', manufacturer: 'Brand New Labs' });
+    assert.equal(linked.barcodes.length, 1);
+    assert.equal(linked.barcodes[0].barcode, '625123');
+    const found = await inventory.getItemByBarcodeApi('625123');
+    assert.equal(found.item.id, item.id);
+    assert.equal(found.manufacturerId, linked.barcodes[0].manufacturerId);
+    await rejection(inventory.getItemByBarcodeApi('nothing-here'), 404);
+    assert.deepEqual((await inventory.getInventoryItemsApi({ search: 'new labs' })).map((row) => row.id), [item.id]);
+
+    const other = await inventory.createInventoryItemApi({ name: 'Other Barcode Item', categoryId: 2, unit: 'box', minQty: 0 });
+    await rejection(inventory.linkBarcodeApi(other.id, { barcode: '625123', manufacturer: 'Brand New Labs' }), 409, 'barcode');
+    await rejection(inventory.unlinkBarcodeApi(other.id, linked.barcodes[0].id), 404);
+
+    await inventory.archiveInventoryItemApi(item.id, { reason: 'Not needed any more' });
+    assert.equal((await inventory.getItemByBarcodeApi('625123')).item.archived, true);
+    await rejection(inventory.unlinkBarcodeApi(item.id, linked.barcodes[0].id), 409);
+    await inventory.restoreInventoryItemApi(item.id);
+    assert.deepEqual((await inventory.unlinkBarcodeApi(item.id, linked.barcodes[0].id)).barcodes, []);
+  });
+
   check('categories: cannot be deleted while active or archived items use them', async () => {
     await signIn(ADMIN);
     const category = await categories.createCategoryApi({ name: 'Temporary' });

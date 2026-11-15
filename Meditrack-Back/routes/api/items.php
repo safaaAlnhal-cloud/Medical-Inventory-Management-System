@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\Items\BarcodeController;
 use App\Http\Controllers\Items\ItemController;
 use Illuminate\Support\Facades\Route;
 
@@ -28,4 +29,9 @@ Route::prefix('inventory')->group(function () {
     Route::patch('/{item}/archive', [ItemController::class, 'archive']);
     Route::patch('/{item}/restore', [ItemController::class, 'restore']);
     Route::get('/{item}/archive-history', [ItemController::class, 'archiveHistory']);
+
+    Route::get('/by-barcode/{code}', [BarcodeController::class, 'show']);
+    Route::post('/{item}/barcodes', [BarcodeController::class, 'store']);
+    // scopeBindings: the barcode must belong to this item, otherwise 404.
+    Route::delete('/{item}/barcodes/{barcode}', [BarcodeController::class, 'destroy'])->scopeBindings();
 });

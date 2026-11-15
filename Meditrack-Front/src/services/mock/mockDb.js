@@ -28,6 +28,8 @@ const seed = () => {
     transactions: clone(mockTransactions),
     // Archive history: one record per archiving, completed when the item is restored. Never deleted.
     itemArchivals: [],
+    // Factory barcodes: { id, itemId, manufacturerId, barcode }. Unique in the whole system.
+    itemBarcodes: [],
     notificationState: {},
   };
   seedNotificationState(db);
@@ -37,7 +39,7 @@ const seed = () => {
 const load = () => {
   try {
     const stored = JSON.parse(sessionStorage.getItem(STORAGE_KEY));
-    return stored?.users && stored?.manufacturers && stored?.items && stored?.batches && stored?.transactions && stored?.itemArchivals ? stored : null;
+    return stored?.users && stored?.manufacturers && stored?.items && stored?.batches && stored?.transactions && stored?.itemArchivals && stored?.itemBarcodes ? stored : null;
   } catch {
     return null;
   }

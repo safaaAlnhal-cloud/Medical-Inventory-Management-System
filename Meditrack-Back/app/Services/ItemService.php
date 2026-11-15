@@ -186,7 +186,8 @@ class ItemService
     }
 
     /**
-     * Name, category name, unit or the number of a batch in stock contains $search (case and
+     * Name, category name, unit, active ingredient, a barcode, or a batch in stock (its number or
+     * manufacturer) or a barcode manufacturer contains $search (case and
      * surrounding spaces ignored), like the search in src/services/inventoryApi.js.
      */
     private function search(Builder $query, ?string $search): void
@@ -197,11 +198,18 @@ class ItemService
         }
 
         $like = "%{$search}%";
+        $manufacturerMatches = fn (Builder $manufacturer) => $manufacturer->where('name', 'like', $like);
         $query->where(fn (Builder $matches) => $matches
             ->where('name', 'like', $like)
             ->orWhere('unit', 'like', $like)
+            ->orWhere('active_ingredient', 'like', $like)
             ->orWhereHas('category', fn (Builder $category) => $category->where('name', 'like', $like))
-            ->orWhereHas('batches', fn (Builder $batch) => $batch->where('quantity', '>', 0)->where('batch_number', 'like', $like)));
+            ->orWhereHas('batches', fn (Builder $batch) => $batch->where('quantity', '>', 0)->where(fn (Builder $batchMatches) => $batchMatches
+                ->where('batch_number', 'like', $like)
+                ->orWhereHas('manufacturer', $manufacturerMatches)))
+            ->orWhereHas('barcodes', fn (Builder $barcode) => $barcode
+                ->where('barcode', 'like', $like)
+                ->orWhereHas('manufacturer', $manufacturerMatches)));
     }
 
     /** An item name is unique among ACTIVE items, whatever its case: a name can be reused after archiving. */

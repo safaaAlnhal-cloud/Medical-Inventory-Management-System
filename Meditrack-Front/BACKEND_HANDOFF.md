@@ -919,7 +919,7 @@ characters after trimming (`422`), and unique, case-insensitive (`409`, field `n
 | PATCH | `/inventory/:id/restore` | Any signed-in user | Restores an archived item. No body. Returns the `Item`. `409` if it is not archived or an active item has the same name |
 | GET | `/manufacturers?search=` | Any signed-in user | `[{ "id", "name" }]`, alphabetical. Without `search`: every manufacturer (a lookup, like `/inventory/lookup`). With it: names containing the text, case and surrounding spaces ignored, for the autocomplete. `422` (field `search`) if `search` is not text or is longer than 150 characters |
 
-**Planned** endpoints (decisions 19–22):
+**Implemented** (backend and service mock; the Scan input, camera and "Link this barcode" UI are still planned) endpoints (decisions 19–22). The barcode `404` uses the standard message "The requested record was not found."; a `409` on a taken barcode names the item that has it. Services: `getItemByBarcodeApi`, `linkBarcodeApi`, `unlinkBarcodeApi`, `getItemArchiveHistoryApi` in `src/services/inventoryApi.js`.
 
 | Method | Endpoint | Access | Notes |
 |---|---|---|---|
@@ -931,7 +931,7 @@ characters after trimming (`422`), and unique, case-insensitive (`409`, field `n
 Changes to existing endpoints (planned):
 
 - `PATCH /inventory/:id/archive` takes `{ "reason" }` (required, see "Archived items").
-- `search` on `/inventory` and `/inventory/archived` also matches barcodes, manufacturer names and
+- **Implemented:** `search` on `/inventory` and `/inventory/archived` also matches barcodes, manufacturer names (of a barcode or of a batch in stock) and
   `activeIngredient`.
 - `/inventory/batches/lookup` rows also carry `manufacturerId`. **Implemented** (backend); the
   frontend does not read it yet.
@@ -970,8 +970,8 @@ field `minQty`). Backend only, until the frontend uses them:
 - `POST` / `PUT` accept the six detail fields. A detail that is not sent stays as it is; `null` or
   `""` clears it. Too long gives `422` on that field ("This field may not be longer than N characters.").
 - `PUT` ignores anything else sent with it (`quantity`, `avgUnitCost`, `archived`...).
-- Search still matches name, category name, unit and the number of a batch in stock. Barcodes,
-  manufacturer names and `activeIngredient` come with the barcode endpoints.
+- Search matches name, category name, unit, `activeIngredient`, the number and manufacturer of a
+  batch in stock, and each barcode and its manufacturer.
 
 **Planned, frontend:** clicking an item opens an **Item Details** modal that replaces today's
 batch modal: the item's details and barcodes at the top, then the batch list as today (batch

@@ -3,6 +3,7 @@ import { EXPIRY_STATUS, getExpiryStatus, getStockStatus } from '../utils/stock';
 import { http } from './apiAxios';
 import { ApiError, fieldError } from './apiError';
 import { commit, matchesSearch, nextId, requireCurrentUser } from './mock/mockDb';
+import { resolveManufacturer } from './mock/mockManufacturers';
 import { selectArchivedInventory, selectInventory, selectItem, selectNameMaps } from './mock/mockSelectors';
 import { request } from './request';
 
@@ -65,6 +66,8 @@ const mapItem = (dto) => {
     archiveReason: dto.archiveReason ?? null,
     archivedBy: dto.archivedBy ?? null,
     archiveHistoryCount: Number(dto.archiveHistoryCount) || 0,
+    // Factory barcodes: [{ id, barcode, manufacturerId }]. Archived items keep theirs.
+    barcodes: (dto.barcodes ?? []).map((barcode) => ({ id: barcode.id, barcode: barcode.barcode, manufacturerId: barcode.manufacturerId })),
   };
 };
 
@@ -113,10 +116,17 @@ const findItem = (db, id) => {
   return item;
 };
 
+// Like the backend: name, category name, unit, active ingredient, each batch in stock (number and
+// manufacturer), and each barcode (code and manufacturer).
 const searchItems = (db, items, search) => {
   const { categoryNames } = selectNameMaps(db);
-  return items.filter((item) =>
-    matchesSearch([item.name, categoryNames.get(item.categoryId), item.unit, ...item.batches.map((batch) => batch.batchNumber)], search));
+  const manufacturerNames = new Map(db.manufacturers.map((manufacturer) => [manufacturer.id, manufacturer.name]));
+  const batchManufacturers = new Map(db.batches.map((batch) => [batch.id, batch.manufacturerId]));
+  return items.filter((item) => matchesSearch([
+    item.name, categoryNames.get(item.categoryId), item.unit, item.activeIngredient,
+    ...item.batches.flatMap((batch) => [batch.batchNumber, manufacturerNames.get(batchManufacturers.get(batch.id))]),
+    ...item.barcodes.flatMap((barcode) => [barcode.barcode, manufacturerNames.get(barcode.manufacturerId)]),
+  ], search));
 };
 
 // ---- Service -----------------------------------------------------------------------------------
@@ -274,4 +284,77 @@ export const getItemArchiveHistoryApi = async (id) => {
     },
   });
   return dtos.map(mapArchival);
+};
+
+// ---- Factory barcodes ----------------------------------------------------------------------------
+// A barcode is unique in the whole system (archived items included) and links an item to one
+// manufacturer. Barcodes are compared exactly. An archived item's barcodes cannot change (409).
+
+const MAX_BARCODE_LENGTH = 64;
+const BARCODE_ARCHIVED = 'This item is deactivated. Reactivate it before changing its barcodes.';
+
+const requireBarcode = (value) => {
+  const barcode = String(value ?? '').trim();
+  if (!barcode) throw fieldError('barcode', 'Enter the barcode.');
+  if (barcode.length > MAX_BARCODE_LENGTH) throw fieldError('barcode', `The barcode may not be longer than ${MAX_BARCODE_LENGTH} characters.`);
+  if (/\s/.test(barcode)) throw fieldError('barcode', 'The barcode may not contain spaces.');
+  return barcode;
+};
+
+// What a scan found: { item: { id, name, unit, archived }, manufacturerId, barcode }.
+// Fails with 404 when no item has the barcode (the Incoming form then offers to link it).
+export const getItemByBarcodeApi = async (code) => {
+  const dto = await request({
+    api: () => http.get(`/inventory/by-barcode/${encodeURIComponent(code)}`),
+    mock: (db) => {
+      const found = db.itemBarcodes.find((barcode) => barcode.barcode === String(code ?? '').trim());
+      if (!found) throw new ApiError('The requested record was not found.', { status: 404 });
+      const item = findItem(db, found.itemId);
+      return {
+        item: { id: item.id, name: item.name, unit: item.unit, archived: Boolean(item.archived) },
+        manufacturerId: found.manufacturerId,
+        barcode: found.barcode,
+      };
+    },
+  });
+  return { item: mapLookupEntry(dto.item), manufacturerId: dto.manufacturerId, barcode: dto.barcode };
+};
+
+// Payload: { barcode, manufacturer } (the manufacturer's NAME; a new name creates it).
+// Resolves with the item, its new barcode included.
+export const linkBarcodeApi = async (itemId, { barcode, manufacturer }) => {
+  const dto = await request({
+    api: () => http.post(`/inventory/${itemId}/barcodes`, { barcode, manufacturer }),
+    mock: (db) => {
+      const item = findItem(db, itemId);
+      const code = requireBarcode(barcode);
+      if (!String(manufacturer ?? '').trim()) throw fieldError('manufacturer', 'Enter the manufacturer of this barcode.');
+      if (item.archived) throw new ApiError(BARCODE_ARCHIVED, { status: 409 });
+      const owner = db.itemBarcodes.find((existing) => existing.barcode === code);
+      if (owner) throw fieldError('barcode', `This barcode is already linked to "${findItem(db, owner.itemId).name}".`, 409);
+      // Last, once every rule has passed: a refused link leaves no new manufacturer behind.
+      const { id: manufacturerId } = resolveManufacturer(db, manufacturer);
+      db.itemBarcodes.push({ id: nextId(db.itemBarcodes), itemId: item.id, manufacturerId, barcode: code });
+      commit();
+      return selectItem(db, item);
+    },
+  });
+  return mapItem(dto);
+};
+
+// Resolves with the item without that barcode. 404 if the barcode is not this item's.
+export const unlinkBarcodeApi = async (itemId, barcodeId) => {
+  const dto = await request({
+    api: () => http.delete(`/inventory/${itemId}/barcodes/${barcodeId}`),
+    mock: (db) => {
+      const item = findItem(db, itemId);
+      const barcode = db.itemBarcodes.find((candidate) => candidate.id === barcodeId && candidate.itemId === itemId);
+      if (!barcode) throw new ApiError('The requested record was not found.', { status: 404 });
+      if (item.archived) throw new ApiError(BARCODE_ARCHIVED, { status: 409 });
+      db.itemBarcodes = db.itemBarcodes.filter((candidate) => candidate.id !== barcodeId);
+      commit();
+      return selectItem(db, item);
+    },
+  });
+  return mapItem(dto);
 };

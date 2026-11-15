@@ -188,6 +188,10 @@ export const selectItem = (db, item, now = new Date()) => {
     archived: Boolean(item.archived),
     archivedAt: item.archivedAt ?? null,
     ...selectArchiveFields(db, item),
+    activeIngredient: item.activeIngredient ?? null,
+    barcodes: (db.itemBarcodes ?? [])
+      .filter((barcode) => barcode.itemId === item.id)
+      .map((barcode) => ({ id: barcode.id, barcode: barcode.barcode, manufacturerId: barcode.manufacturerId })),
   };
 };
 
