@@ -4,6 +4,7 @@ import { ACTION_BUTTON_TONE, DeleteIcon, EditIcon } from '../../components/commo
 import ConfirmDialog from '../../components/common/ConfirmDialog';
 import { TableState } from '../../components/common/DataState';
 import { FieldError } from '../../components/common/FormField';
+import BarcodeScanPanel from '../../components/inventory/BarcodeScanPanel';
 import InlineAlert from '../../components/common/InlineAlert';
 import Modal from '../../components/common/Modal';
 import PageHeader from '../../components/common/PageHeader';
@@ -655,6 +656,15 @@ const TransactionsPage = () => {
 
       {openModal === INCOMING && (
         <Modal title="Add Incoming Stock" spacing="space-y-4" onClose={() => setOpenModal(null)}>
+          {/* Outside the form: a scanner's Enter must not submit it. A scan fills the item and the manufacturer. */}
+          <BarcodeScanPanel
+            manufacturers={manufacturers}
+            linkItems={inventoryItems}
+            defaultItemId={incomingForm.itemId}
+            defaultManufacturer={incomingForm.manufacturer}
+            onLinked={() => { reloadInventory(); reloadManufacturers(); }}
+            onFound={({ item, manufacturerName: name }) => setIncomingForm((form) => ({ ...form, itemId: String(item.id), manufacturer: name || form.manufacturer }))}
+          />
           <form onSubmit={handleSaveIncoming} className="space-y-3.5 text-xs">
             {formError && <InlineAlert>{formError}</InlineAlert>}
             <IncomingFields form={incomingForm} onChange={(changes) => setIncomingForm({ ...incomingForm, ...changes })} items={inventoryItems} manufacturers={manufacturers} errors={fieldErrors} />
@@ -668,6 +678,11 @@ const TransactionsPage = () => {
 
       {openModal === OUTGOING && (
         <Modal title="Add Outgoing Stock" spacing="space-y-4" onClose={() => setOpenModal(null)}>
+          {/* A scan selects the item and its manufacturer: that manufacturer's batches are then listed first. */}
+          <BarcodeScanPanel
+            manufacturers={manufacturers}
+            onFound={({ item, manufacturerId }) => setOutgoingForm((form) => ({ ...form, itemId: String(item.id), manufacturerId: manufacturerId == null ? '' : String(manufacturerId), batchId: '' }))}
+          />
           <form onSubmit={handleSaveOutgoing} className="space-y-3.5 text-xs">
             {formError && <InlineAlert>{formError}</InlineAlert>}
             <OutgoingFields

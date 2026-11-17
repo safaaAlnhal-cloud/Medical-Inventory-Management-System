@@ -323,6 +323,16 @@ try {
     await rejection(inventory.getItemArchiveHistoryApi(9999), 404);
   });
 
+  check('barcodes: the demo barcodes match the backend seeder (Paracetamol has two)', async () => {
+    await signIn(STOREKEEPER);
+    const nova = await inventory.getItemByBarcodeApi('6291100100011');
+    const medica = await inventory.getItemByBarcodeApi('6291100200018');
+    assert.equal(nova.item.id, 1);
+    assert.equal(medica.item.id, 1);
+    assert.deepEqual([nova.manufacturerId, medica.manufacturerId], [1, 2]);
+    assert.equal((await findItem(1)).barcodes.length, 2);
+  });
+
   check('barcodes: link, scan, search and remove, unique everywhere and frozen while archived', async () => {
     await signIn(STOREKEEPER);
     const item = await inventory.createInventoryItemApi({ name: 'Barcode Item', categoryId: 2, unit: 'box', minQty: 0 });

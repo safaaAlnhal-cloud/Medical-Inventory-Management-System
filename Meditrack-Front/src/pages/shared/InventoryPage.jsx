@@ -2,6 +2,7 @@ import React, { useCallback, useMemo, useState } from 'react';
 import { Archive, ArchiveRestore, Filter, Plus, FolderCog, Edit2, Trash2, History } from 'lucide-react';
 import { ACTION_BUTTON_TONE, EditIcon, ViewIcon } from '../../components/common/ActionIcons';
 import ArchiveHistoryModal from '../../components/inventory/ArchiveHistoryModal';
+import BarcodeScanPanel from '../../components/inventory/BarcodeScanPanel';
 import ItemDetailsModal from '../../components/inventory/ItemDetailsModal';
 import ConfirmDialog from '../../components/common/ConfirmDialog';
 import { TableState } from '../../components/common/DataState';
@@ -137,6 +138,16 @@ const InventoryPage = () => {
 
   const closeDetailsModal = () => setViewingItemId(null);
   const viewingItem = viewingItemId === null ? null : items.find((item) => sameId(item.id, viewingItemId)) ?? null;
+
+  // A scanned barcode opens its item. A deactivated item is listed in the other view, so the
+  // page switches to it first; the modal shows once that list has loaded.
+  const handleScanFound = ({ item }) => {
+    const view = item.archived ? VIEWS.ARCHIVED : VIEWS.ACTIVE;
+    if (view !== (isArchivedView ? VIEWS.ARCHIVED : VIEWS.ACTIVE)) switchView(view);
+    setSelectedCategory('all');
+    setSelectedStatus('all');
+    setViewingItemId(item.id);
+  };
 
   // A barcode was added or removed in the details modal: a new manufacturer may exist too.
   const handleItemChanged = () => {
@@ -337,6 +348,9 @@ const InventoryPage = () => {
             Deactivated
           </button>
         </div>
+
+        {/* Scan a box: its item's details open, in the Active or the Deactivated view. */}
+        <BarcodeScanPanel manufacturers={manufacturers} allowArchived onFound={handleScanFound} />
 
         <div className="bg-white p-4 rounded-2xl border border-slate-200/80 shadow-sm grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div className="relative">
