@@ -1,3 +1,4 @@
+import { mockItemBarcodes } from '../../mockData/barcodesMock';
 import { mockBatches } from '../../mockData/batchesMock';
 import { mockCategories } from '../../mockData/categoriesMock';
 import { mockInventoryItems } from '../../mockData/inventoryMock';
@@ -14,7 +15,7 @@ import { seedNotificationState, syncNotifications } from './mockSelectors';
 // sessionStorage, so changes survive a page refresh and reset when the browser tab is closed.
 // Only services may import this module; pages and components never touch it.
 // Bump the version whenever the seed data shape changes, so stale stored copies are dropped.
-const STORAGE_KEY = 'meditrack.mockDb.v9';
+const STORAGE_KEY = 'meditrack.mockDb.v10';
 
 const clone = (value) => JSON.parse(JSON.stringify(value));
 
@@ -29,7 +30,7 @@ const seed = () => {
     // Archive history: one record per archiving, completed when the item is restored. Never deleted.
     itemArchivals: [],
     // Factory barcodes: { id, itemId, manufacturerId, barcode }. Unique in the whole system.
-    itemBarcodes: [],
+    itemBarcodes: clone(mockItemBarcodes),
     notificationState: {},
   };
   seedNotificationState(db);

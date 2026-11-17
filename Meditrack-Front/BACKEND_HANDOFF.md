@@ -383,7 +383,11 @@ page of their own:
 - Requests send the manufacturer **by name** (`"manufacturer": "PharmaCo"`); responses and edit
   history carry `manufacturerId`, resolved to a name through `GET /manufacturers`.
 
-**Scanning (planned, frontend).** Inventory search, Incoming and Outgoing get a "Scan" input:
+**Scanning (implemented, frontend).** The Inventory page, Incoming and Outgoing have a "Scan" input
+(`src/components/inventory/BarcodeScanPanel.jsx`, `ScanInput.jsx`, `CameraScanner.jsx`). On the
+Inventory page a scan opens the item's details (a deactivated item in the Deactivated view). The camera
+uses `@zxing/browser`, loaded only when the camera opens. The demo barcodes are in
+`src/mockData/barcodesMock.js`, the same as the backend's DemoDataSeeder.
 
 - A USB / Bluetooth barcode scanner types the code and presses Enter, so a plain text input
   supports it with no library; the same input accepts a typed code.
@@ -398,7 +402,7 @@ page of their own:
   mock and form): choosing the manufacturer by hand, in the Outgoing form's optional Manufacturer
   field, which lists only the manufacturers with usable stock of the item. If the chosen batch is
   from another manufacturer the form shows a note, without blocking the save: the batch is what is
-  recorded. The scan itself is planned (it fills the same two fields).
+  recorded. **Implemented:** a scan fills the same two fields.
 
 ### Average Cost and Unit Cost
 
@@ -525,8 +529,9 @@ display text only. The data model, service functions and endpoints keep the word
 
 **Implemented** (backend and mock): archive with a reason, restore, the history endpoint, and
 `archiveReason` / `archivedBy` / `archiveHistoryCount` on the `Item`. The Deactivate dialog has
-the required Reason box. **Still planned in the frontend:** showing the reason in the Deactivated
-list, and the History button and modal. Archive and restore lock the item's row, so a receipt
+the required Reason box. **Implemented** (frontend): the Deactivated list shows the reason and who
+deactivated the item, and a History button (when `archiveHistoryCount > 0`, in that list and in the
+Item Details modal) opens the records in a modal (`src/components/inventory/ArchiveHistoryModal.jsx`). Archive and restore lock the item's row, so a receipt
 recorded at the same moment cannot slip in between the stock check and the archiving.
 
 Until the backend exists this lives in `archiveInventoryItemApi` / `restoreInventoryItemApi` in
@@ -919,7 +924,7 @@ characters after trimming (`422`), and unique, case-insensitive (`409`, field `n
 | PATCH | `/inventory/:id/restore` | Any signed-in user | Restores an archived item. No body. Returns the `Item`. `409` if it is not archived or an active item has the same name |
 | GET | `/manufacturers?search=` | Any signed-in user | `[{ "id", "name" }]`, alphabetical. Without `search`: every manufacturer (a lookup, like `/inventory/lookup`). With it: names containing the text, case and surrounding spaces ignored, for the autocomplete. `422` (field `search`) if `search` is not text or is longer than 150 characters |
 
-**Implemented** (backend and service mock; the Scan input, camera and "Link this barcode" UI are still planned) endpoints (decisions 19–22). The barcode `404` uses the standard message "The requested record was not found."; a `409` on a taken barcode names the item that has it. Services: `getItemByBarcodeApi`, `linkBarcodeApi`, `unlinkBarcodeApi`, `getItemArchiveHistoryApi` in `src/services/inventoryApi.js`.
+**Implemented** (backend, mock and UI) endpoints (decisions 19–22). The barcode `404` uses the standard message "The requested record was not found."; a `409` on a taken barcode names the item that has it. Services: `getItemByBarcodeApi`, `linkBarcodeApi`, `unlinkBarcodeApi`, `getItemArchiveHistoryApi` in `src/services/inventoryApi.js`.
 
 | Method | Endpoint | Access | Notes |
 |---|---|---|---|
@@ -973,8 +978,11 @@ field `minQty`). Backend only, until the frontend uses them:
 - Search matches name, category name, unit, `activeIngredient`, the number and manufacturer of a
   batch in stock, and each barcode and its manufacturer.
 
-**Planned, frontend:** clicking an item opens an **Item Details** modal that replaces today's
-batch modal: the item's details and barcodes at the top, then the batch list as today (batch
+**Implemented, frontend** (`src/components/inventory/ItemDetailsModal.jsx`): the View button opens an
+**Item Details** modal that replaces the old batch modal (also from the Deactivated list, read-only there).
+The item form has the six optional details. The modal lists the barcodes with their manufacturer
+and adds / removes them (not on a deactivated item).
+The modal shows the item's details and barcodes at the top, then the batch list as today (batch
 number, manufacturer, manufacturing date, expiry date, supplier, quantity, status, Dispose
 button). It needs no new endpoint: everything is on the `Item`.
 

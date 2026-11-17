@@ -26,6 +26,9 @@ export const mapBatch = (dto) => {
     expiredQuantity: dto.expiredQuantity === undefined ? (expired ? quantity : 0) : Number(dto.expiredQuantity) || 0,
     unitCost: Number(dto.unitCost) || 0,
     supplier: dto.supplier ?? '',
+    // Who made this batch and when (both null when unknown).
+    manufacturerId: dto.manufacturerId ?? null,
+    manufacturingDate: dto.manufacturingDate ?? null,
     expiryDate: dto.expiryDate ?? null,
     expiryStatus,
   };
@@ -66,6 +69,8 @@ const mapItem = (dto) => {
     archiveReason: dto.archiveReason ?? null,
     archivedBy: dto.archivedBy ?? null,
     archiveHistoryCount: Number(dto.archiveHistoryCount) || 0,
+    // The six optional details, the same for every box of the item; null when not set.
+    ...Object.fromEntries(Object.keys(ITEM_DETAIL_LIMITS).map((field) => [field, dto[field] ?? null])),
     // Factory barcodes: [{ id, barcode, manufacturerId }]. Archived items keep theirs.
     barcodes: (dto.barcodes ?? []).map((barcode) => ({ id: barcode.id, barcode: barcode.barcode, manufacturerId: barcode.manufacturerId })),
   };
@@ -96,8 +101,31 @@ const validateItem = (db, payload, exceptId = null) => {
   if (!Number.isFinite(minQty) || minQty < 0) throw fieldError('minQty', 'Minimum quantity must be zero or more.');
   if (!Number.isInteger(minQty)) throw fieldError('minQty', 'Minimum quantity must be a whole number.');
   if (minQty > MAX_MIN_QTY) throw fieldError('minQty', `Minimum quantity may not be more than ${MAX_MIN_QTY.toLocaleString('en-US')}.`);
+  const details = validateDetails(payload);
   assertNameAvailable(db, name, exceptId);
-  return { name, categoryId: payload.categoryId, unit: payload.unit, minQty };
+  return { name, categoryId: payload.categoryId, unit: payload.unit, minQty, ...details };
+};
+
+// The six optional details and their length limits (the same as the backend's items columns).
+export const ITEM_DETAIL_LIMITS = {
+  activeIngredient: 150,
+  strength: 50,
+  dosageForm: 50,
+  storageConditions: 255,
+  uses: 1000,
+  description: 2000,
+};
+
+// Only the details that were sent: one left out stays as it is. Empty or only spaces = not set (null).
+const validateDetails = (payload) => {
+  const details = {};
+  for (const [field, limit] of Object.entries(ITEM_DETAIL_LIMITS)) {
+    if (payload[field] === undefined) continue;
+    const text = String(payload[field] ?? '').trim();
+    if (text.length > limit) throw fieldError(field, `This field may not be longer than ${limit} characters.`);
+    details[field] = text || null;
+  }
+  return details;
 };
 
 // The same rule as the backend: required (not only spaces) and at most 500 characters.
@@ -170,7 +198,7 @@ export const getBatchLookupApi = async () => {
   return dtos.map((dto) => ({ id: dto.id, itemId: dto.itemId, batchNumber: dto.batchNumber }));
 };
 
-// Payload: { name, categoryId, unit, minQty }
+// Payload: { name, categoryId, unit, minQty } and, optionally, the six details (ITEM_DETAIL_LIMITS).
 export const createInventoryItemApi = async (payload) => {
   const dto = await request({
     api: () => http.post('/inventory', payload),
@@ -184,7 +212,7 @@ export const createInventoryItemApi = async (payload) => {
   return mapItem(dto);
 };
 
-// Payload: { name, categoryId, unit, minQty }. Only these four fields change: stock, batches,
+// Payload: the same as create. Only the form fields change (the four main ones and the details sent): stock, batches,
 // costs and the archive state are never touched by an update.
 export const updateInventoryItemApi = async (id, payload) => {
   const dto = await request({
