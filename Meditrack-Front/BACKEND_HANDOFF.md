@@ -812,7 +812,7 @@ Errors (**implemented**, backend and mock):
 | Unknown email or wrong password | `401` | "Invalid email or password." (the same for both) |
 | Account is inactive | `403` | "This account is inactive. Please contact an administrator." |
 | Account has expired | `403` | "This account expired on 2026-11-14. Please contact an administrator." |
-| More than 5 attempts a minute from one address | `429` | "Too Many Attempts." |
+| More than 5 attempts a minute from one address (the right password too) | `429` | "Too many attempts. Please wait N seconds and try again." The body also has `"retryAfter": N` (seconds; the `Retry-After` header is sent too but a page on another origin cannot read it). The Login page counts down and disables the button until then. The mock does not limit attempts |
 
 The inactive and expired checks run only after the password is right, so only the account's
 owner learns its state. A successful login updates the user's `lastActiveAt`.

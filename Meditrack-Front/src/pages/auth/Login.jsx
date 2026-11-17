@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Navigate, useLocation, useNavigate } from 'react-router-dom';
 import { getHomePath } from '../../constants/users';
 import { useAuth } from '../../context/AuthContext';
@@ -21,6 +21,16 @@ const Login = () => {
   const [error, setError] = useState('');
   // Information that is not an error: why the user is back here, or how passwords are reset.
   const [notice, setNotice] = useState(() => (hasSessionExpired() ? SESSION_ENDED_NOTICE : ''));
+  // After too many attempts (429) the server refuses every sign-in for a while, even with the
+  // right password. secondsLeft counts that wait down: the button is disabled until it reaches 0.
+  const [secondsLeft, setSecondsLeft] = useState(0);
+  const locked = secondsLeft > 0;
+
+  useEffect(() => {
+    if (!locked) return undefined;
+    const timer = setTimeout(() => setSecondsLeft((seconds) => seconds - 1), 1000);
+    return () => clearTimeout(timer);
+  }, [locked, secondsLeft]);
 
   // Already signed in: go straight to the user's dashboard.
   if (isAuthenticated) return <Navigate to={getHomePath(role)} replace />;
@@ -32,6 +42,7 @@ const Login = () => {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    if (locked) return;
     setError('');
     setNotice('');
     setLoading(true);
@@ -45,7 +56,12 @@ const Login = () => {
       const canOpenRequested = requestedPath?.startsWith(`/${session.user.role}/`);
       navigate(canOpenRequested ? requestedPath : getHomePath(session.user.role), { replace: true });
     } catch (err) {
-      setError(getErrorMessage(err, 'Unable to sign in. Please try again.'));
+      if (err?.status === 429) {
+        // The message is written below from the countdown, so it always says the time left.
+        setSecondsLeft(err.retryAfter ?? 60);
+      } else {
+        setError(getErrorMessage(err, 'Unable to sign in. Please try again.'));
+      }
       setLoading(false);
     }
   };
@@ -86,13 +102,19 @@ const Login = () => {
               </p>
             </div>
 
-            {error && (
+            {locked && (
+              <div role="alert" className="mb-4 p-2.5 rounded-lg bg-red-50 border border-red-200 text-red-600 text-xs font-bold text-center font-nunito">
+                Too many sign-in attempts. Please wait {secondsLeft} {secondsLeft === 1 ? 'second' : 'seconds'} and try again.
+              </div>
+            )}
+
+            {error && !locked && (
               <div role="alert" className="mb-4 p-2.5 rounded-lg bg-red-50 border border-red-200 text-red-600 text-xs font-bold text-center font-nunito">
                 {error}
               </div>
             )}
 
-            {notice && !error && (
+            {notice && !error && !locked && (
               <div role="status" className="mb-4 p-2.5 rounded-lg bg-slate-50 border border-slate-200 text-slate-600 text-xs font-bold text-center font-nunito">
                 {notice}
               </div>
@@ -161,9 +183,9 @@ const Login = () => {
                 <button
                   className="w-full py-2.5 px-4 bg-[#115e54] hover:bg-[#0e4f47] active:bg-[#0b3e38] text-white font-bold text-xs rounded-lg transition duration-150 shadow-sm flex items-center justify-center cursor-pointer disabled:opacity-50 font-nunito"
                   type="submit"
-                  disabled={loading}
+                  disabled={loading || locked}
                 >
-                  {loading ? 'Logging in...' : 'Login'}
+                  {loading ? 'Logging in...' : locked ? `Try again in ${secondsLeft}s` : 'Login'}
                 </button>
               </div>
 

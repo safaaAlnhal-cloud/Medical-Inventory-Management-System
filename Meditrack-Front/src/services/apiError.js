@@ -1,11 +1,13 @@
 // The one error type services throw, for both the mock layer and the real API.
 // `message` is always safe to show to the user.
 export class ApiError extends Error {
-  constructor(message, { status = 0, fieldErrors = null } = {}) {
+  // retryAfter: on a 429, how many seconds to wait before trying again (null otherwise).
+  constructor(message, { status = 0, fieldErrors = null, retryAfter = null } = {}) {
     super(message);
     this.name = 'ApiError';
     this.status = status;
     this.fieldErrors = fieldErrors;
+    this.retryAfter = retryAfter;
   }
 }
 
@@ -32,7 +34,9 @@ export const toApiError = (error) => {
   const message = typeof body?.message === 'string' && body.message.trim()
     ? body.message
     : DEFAULT_MESSAGES[response.status] || (response.status >= 500 ? 'The server ran into a problem. Please try again later.' : 'Something went wrong. Please try again.');
-  return new ApiError(message, { status: response.status, fieldErrors: body?.errors ?? null });
+  // A 429 body carries retryAfter (seconds), because the page cannot read the Retry-After header.
+  const retryAfter = Number(body?.retryAfter) > 0 ? Math.ceil(Number(body.retryAfter)) : null;
+  return new ApiError(message, { status: response.status, fieldErrors: body?.errors ?? null, retryAfter });
 };
 
 // Per-field messages of a failed request ({ [field]: message }), or {} when there are none.

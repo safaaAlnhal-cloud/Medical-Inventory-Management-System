@@ -16,6 +16,11 @@ import { createServer } from 'vite';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
+// These checks test the mock layer, whatever .env says: with VITE_USE_MOCK_DATA=false (to try
+// the app against the real backend) they would otherwise send requests to that server.
+// Vite lets a variable already set in the environment win over the .env file.
+process.env.VITE_USE_MOCK_DATA = 'true';
+
 const memoryStorage = () => {
   const values = new Map();
   return {
