@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Enums\OutgoingReason;
+use App\Enums\TransactionStatus;
 use App\Enums\TransactionType;
 use App\Exceptions\ConflictException;
 use App\Models\Batch;
@@ -179,6 +180,66 @@ class TransactionService
 
             return $transaction->setRelation('batch', $batch);
         });
+    }
+
+    /**
+     * PATCH /transactions/{id}/cancel: the transaction stays in the lists, marked cancelled, and
+     * from now on counts nowhere. The item's stock and Average Cost are replayed without it; no
+     * other transaction is rewritten (outgoing unit costs stay as they were).
+     * BACKEND_HANDOFF.md, "Cancelled transactions".
+     *
+     *   outgoing (issue or disposal): its quantity goes back to its batch
+     *   incoming: its batch leaves stock. Refused while stock issued from that batch is active,
+     *             or the batch would go below zero: those outgoing transactions go first.
+     *
+     * @throws ConflictException 409: already cancelled, the item is archived, or stock issued
+     *                           from the batch of this incoming transaction is still active
+     */
+    public function cancel(Transaction $transaction, User $cancelledBy): Transaction
+    {
+        return DB::transaction(function () use ($transaction, $cancelledBy) {
+            $item = $this->stock->lockItems($transaction->item_id)->first();
+            // Read again once the item is locked: someone may have cancelled it meanwhile, or an
+            // edit may have moved it to another item (then that item is the one to lock).
+            $transaction->refresh();
+            if ($transaction->item_id !== $item->id) {
+                $item = $this->stock->lockItems($transaction->item_id)->first();
+            }
+
+            if (! $transaction->isActive()) {
+                throw new ConflictException('This transaction has already been cancelled.');
+            }
+            $this->ensureCanChange($item);
+
+            if ($transaction->isIncoming()) {
+                $issued = (int) Transaction::active()
+                    ->where('type', TransactionType::Outgoing)
+                    ->where('batch_id', $transaction->batch_id)
+                    ->sum('quantity');
+                if ($issued > 0) {
+                    throw new ConflictException("This incoming transaction cannot be cancelled because {$issued} from batch {$transaction->batch->batch_number} has already been issued. Cancel those outgoing transactions first.");
+                }
+            }
+
+            $transaction->forceFill([
+                'status' => TransactionStatus::Cancelled,
+                'cancelled_at' => now(),
+                // From the token, like recorded_by.
+                'cancelled_by' => $cancelledBy->id,
+            ])->save();
+
+            $this->stock->recalculate($item);
+
+            return $transaction->load('batch');
+        });
+    }
+
+    /** The transactions of an archived item are read-only: changing one would change its stock. */
+    private function ensureCanChange(Item $item): void
+    {
+        if ($item->isArchived()) {
+            throw new ConflictException("This transaction belongs to \"{$item->name}\", which is deactivated. Reactivate the item to change its transactions.");
+        }
     }
 
     /** Expiry is judged by today's date, not the transaction's: back-dating cannot issue expired stock. */
