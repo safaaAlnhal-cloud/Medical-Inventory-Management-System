@@ -59,6 +59,35 @@ class ManageUsersTest extends TestCase
             ->assertJsonPath('errors.password', 'The password must be at least 6 characters.')
             ->assertJsonPath('errors.role', 'Only storekeeper accounts can be created.')
             ->assertJsonPath('errors.accountExpiresOn', 'The account expiry date cannot be in the past.');
+
+        // The Users forms leave all checking to the server (noValidate): nothing may slip through.
+        $this->postJson('/api/users', [])
+            ->assertUnprocessable()
+            ->assertJsonPath('errors.name', 'Full name is required.')
+            ->assertJsonPath('errors.email', 'Please enter a valid email address.')
+            ->assertJsonPath('errors.password', 'The password must be at least 6 characters.');
+        $this->postJson('/api/users', ['name' => 'X', 'email' => 'ahmad@medcenter', 'password' => 'secret1'])
+            ->assertJsonPath('errors.email', 'Please enter a valid email address.');
+        $this->postJson('/api/users', [
+            'name' => str_repeat('n', 256), 'email' => str_repeat('a', 250).'@b.ps', 'password' => str_repeat('p', 256), 'accountExpiresOn' => '2026-02-31',
+        ])
+            ->assertJsonPath('errors.name', 'Full name may not be longer than 255 characters.')
+            ->assertJsonPath('errors.email', 'Please enter a valid email address.')
+            ->assertJsonPath('errors.password', 'The password may not be longer than 255 characters.')
+            ->assertJsonPath('errors.accountExpiresOn', 'Please enter a valid date.');
+        $this->assertDatabaseCount('users', 2);
+    }
+
+    public function test_update_checks_every_field(): void
+    {
+        $this->putJson("/api/users/{$this->omar->id}", ['name' => '', 'email' => 'omar@medcenter', 'status' => '', 'accountExpiresOn' => 'soon'])
+            ->assertUnprocessable()
+            ->assertJsonPath('errors.name', 'Full name is required.')
+            ->assertJsonPath('errors.email', 'Please enter a valid email address.')
+            ->assertJsonPath('errors.status', 'Please choose a valid account status.')
+            ->assertJsonPath('errors.accountExpiresOn', 'Please enter a valid date.');
+        $this->putJson("/api/users/{$this->omar->id}/password", ['newPassword' => str_repeat('p', 256)])
+            ->assertJsonPath('errors.newPassword', 'The password may not be longer than 255 characters.');
     }
 
     // ---- PUT /users/{user} ---------------------------------------------------------------------
@@ -133,6 +162,14 @@ class ManageUsersTest extends TestCase
         $this->putJson("/api/users/{$this->omar->id}/password", ['newPassword' => 'brand-new'])->assertNoContent();
 
         $this->assertTrue(Hash::check('brand-new', $this->omar->fresh()->password));
+    }
+
+    public function test_a_new_password_is_kept_exactly_as_typed_and_signs_in(): void
+    {
+        $this->putJson("/api/users/{$this->omar->id}/password", ['newPassword' => '  pass12  '])->assertNoContent();
+
+        $this->assertTrue(Hash::check('  pass12  ', $this->omar->fresh()->password));
+        $this->postJson('/api/auth/login', ['email' => 'omar@medcenter.ps', 'password' => '  pass12  '])->assertOk();
     }
 
     public function test_a_new_password_shorter_than_6_characters_is_a_422(): void

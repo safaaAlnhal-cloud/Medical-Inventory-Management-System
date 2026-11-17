@@ -1,9 +1,10 @@
 import { ACCESS, accountExpiredMessage, isAccountExpired, normalizeRole, USER_STATUS } from '../constants/users';
 import { toISODate } from '../utils/dates';
 import { http } from './apiAxios';
-import { ApiError } from './apiError';
+import { ApiError, checkFields, fieldError } from './apiError';
 import { commit, createMockToken, requireCurrentUser } from './mock/mockDb';
 import { request } from './request';
+import { EMAIL_PATTERN, MAX_TEXT_LENGTH } from './usersApi';
 
 // The signed-in user as the app keeps it: { id, name, email, role }. Never a password.
 const mapSessionUser = (dto) => ({ id: dto.id, name: dto.name, email: dto.email, role: normalizeRole(dto.role) });
@@ -21,7 +22,24 @@ export const loginApi = async ({ email, password, remember = false }) => {
     access: ACCESS.PUBLIC,
     api: () => http.post('/auth/login', { email, password, remember: Boolean(remember) }, { skipAuthHandling: true }),
     mock: (db) => {
-      const wanted = String(email ?? '').trim().toLowerCase();
+      // Like LoginRequest: both fields are checked first, and every wrong one is listed (422).
+      const valid = checkFields({
+        email: () => {
+          const text = String(email ?? '').trim();
+          if (!text) throw fieldError('email', 'Enter your email.');
+          if (!EMAIL_PATTERN.test(text)) throw fieldError('email', 'Enter a valid email address.');
+          if (text.length > MAX_TEXT_LENGTH) throw fieldError('email', `The email may not be longer than ${MAX_TEXT_LENGTH} characters.`);
+          return text;
+        },
+        password: () => {
+          // Never trimmed (Laravel leaves passwords as typed): only an empty one is missing.
+          const text = String(password ?? '');
+          if (!text) throw fieldError('password', 'Enter your password.');
+          if (text.length > MAX_TEXT_LENGTH) throw fieldError('password', `The password may not be longer than ${MAX_TEXT_LENGTH} characters.`);
+          return text;
+        },
+      });
+      const wanted = valid.email.toLowerCase();
       const user = db.users.find((candidate) => candidate.email.toLowerCase() === wanted && candidate.password === password);
       if (!user) throw new ApiError('Invalid email or password.', { status: 401 });
       if (user.status !== USER_STATUS.ACTIVE) throw new ApiError('This account is inactive. Please contact an administrator.', { status: 403 });

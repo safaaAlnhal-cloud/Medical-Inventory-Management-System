@@ -89,6 +89,17 @@ class LoginTest extends TestCase
             ->assertUnprocessable()
             ->assertJsonPath('errors.email', 'Enter a valid email address.')
             ->assertJsonPath('errors.password', 'Enter your password.');
+
+        // Every field is checked here: the Login form leaves all checking to the server (noValidate).
+        $this->postJson('/api/auth/login', ['email' => '   ', 'password' => ''])
+            ->assertUnprocessable()
+            ->assertJsonPath('errors.email', 'Enter your email.')
+            ->assertJsonPath('errors.password', 'Enter your password.');
+        $this->postJson('/api/auth/login', ['email' => 'omar@medcenter', 'password' => 'x'])
+            ->assertJsonPath('errors.email', 'Enter a valid email address.');
+        $this->postJson('/api/auth/login', ['email' => str_repeat('a', 250).'@b.ps', 'password' => str_repeat('p', 256)])
+            ->assertJsonPath('errors.email', 'Enter a valid email address.')
+            ->assertJsonPath('errors.password', 'The password may not be longer than 255 characters.');
     }
 
     public function test_login_is_limited_to_5_attempts_a_minute(): void

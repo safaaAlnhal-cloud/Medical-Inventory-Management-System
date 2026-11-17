@@ -95,6 +95,18 @@ class ProfileTest extends TestCase
         $this->assertTrue(Hash::check('another-pass', $this->omar->fresh()->password));
     }
 
+    public function test_passwords_with_spaces_are_kept_exactly_as_typed(): void
+    {
+        $this->omar->update(['password' => ' secret1 ']);
+        $this->actingAsStorekeeper($this->omar);
+
+        // The current password is compared as typed: without its spaces it is wrong.
+        $this->putJson('/api/profile/password', ['currentPassword' => 'secret1', 'newPassword' => 'another-pass'])->assertUnprocessable();
+        $this->putJson('/api/profile/password', ['currentPassword' => ' secret1 ', 'newPassword' => '  new pass  '])->assertNoContent();
+
+        $this->assertTrue(Hash::check('  new pass  ', $this->omar->fresh()->password));
+    }
+
     public function test_a_wrong_current_password_or_a_short_new_one_is_a_422(): void
     {
         $this->actingAsStorekeeper($this->omar);

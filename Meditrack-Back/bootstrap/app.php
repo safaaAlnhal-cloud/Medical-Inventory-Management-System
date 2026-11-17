@@ -22,6 +22,11 @@ return Application::configure(basePath: dirname(__DIR__))
         $middleware->alias([
             'role' => EnsureUserHasRole::class,
         ]);
+
+        // Passwords are kept exactly as typed. Laravel already leaves "password" alone, but our
+        // camelCase fields were trimmed: a new password "  pass12  " was saved as "pass12", and
+        // signing in with what was typed then failed.
+        $middleware->trimStrings(except: ['newPassword', 'currentPassword']);
     })
     ->withExceptions(function (Exceptions $exceptions): void {
         $exceptions->shouldRenderJsonWhen(

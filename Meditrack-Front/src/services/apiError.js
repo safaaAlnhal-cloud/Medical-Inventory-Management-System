@@ -46,5 +46,25 @@ export const getFieldErrors = (error) => (error instanceof ApiError && error.fie
 // A rejected value that belongs to one form field. Used by the mock-side validation.
 export const fieldError = (field, message, status = 422) => new ApiError(message, { status, fieldErrors: { [field]: message } });
 
+// Mock-side: runs every check and reports ALL the fields that fail in one 422, as the backend's
+// Form Requests do, so a form shows a message under each wrong input at once.
+//   checks: { key: () => cleanedValue }   each check returns the clean value or throws a fieldError
+// Returns { key: cleanedValue }. Any error that is not a field error is rethrown as it is.
+export const checkFields = (checks) => {
+  const values = {};
+  const errors = {};
+  for (const [key, check] of Object.entries(checks)) {
+    try {
+      values[key] = check();
+    } catch (err) {
+      if (!(err instanceof ApiError) || !err.fieldErrors || err.status !== 422) throw err;
+      Object.assign(errors, err.fieldErrors);
+    }
+  }
+  const failed = Object.keys(errors);
+  if (failed.length) throw new ApiError(errors[failed[0]], { status: 422, fieldErrors: errors });
+  return values;
+};
+
 export const getErrorMessage = (error, fallback = 'Something went wrong. Please try again.') =>
   error instanceof ApiError && error.message ? error.message : fallback;

@@ -21,7 +21,9 @@ class UpdateUserRequest extends FormRequest
     {
         return [
             'name' => ['required', 'string', 'max:255'],
-            'email' => ['required', 'string', 'email', 'max:255'],
+            // email:filter (PHP's own check) also refuses an address with no dot after the @, such as
+            // "a@b", like the frontend's check does. Its message key stays "email.email".
+            'email' => ['required', 'string', 'email:filter', 'max:255'],
             'status' => ['required', Rule::enum(UserStatus::class)],
             // Optional: when it is not sent, the date stays as it is. The "not in the past" check
             // is in UserService, so an expired account's unchanged date can be sent back as it is.

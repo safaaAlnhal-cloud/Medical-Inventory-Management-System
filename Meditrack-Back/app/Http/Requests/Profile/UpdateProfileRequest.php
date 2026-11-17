@@ -20,7 +20,9 @@ class UpdateProfileRequest extends FormRequest
     {
         return [
             'name' => ['required', 'string', 'max:255'],
-            'email' => ['required', 'string', 'email', 'max:255'],
+            // email:filter (PHP's own check) also refuses an address with no dot after the @, such as
+            // "a@b", like the frontend's check does. Its message key stays "email.email".
+            'email' => ['required', 'string', 'email:filter', 'max:255'],
             // Optional: an empty phone is stored as null. The users table holds up to 30 characters.
             'phone' => ['nullable', 'string', 'max:30'],
         ];

@@ -837,6 +837,14 @@ and a new page; neither exists today.
 
 ### 4.2 Users
 
+**Implemented: the Login form and the two Users forms are `noValidate`.** The browser's own
+"Please fill in this field" bubbles are off, so every message comes from the server (or the mock),
+in the app's words, under its field; one `422` lists every wrong field at once. So every rule
+must be checked by the server: an email needs a dot after the `@` (`email:filter`, so
+`"ahmad@medcenter"` is refused), names, emails and passwords are at most 255 characters, and
+passwords (`password`, `newPassword`, `currentPassword`) are never trimmed: they are kept exactly
+as typed. Other forms still use the browser's checks.
+
 | Method | Endpoint | Access | Notes |
 |---|---|---|---|
 | GET | `/users?search=` | Admin | Returns `User[]`. `search` matches name, email, role, status |

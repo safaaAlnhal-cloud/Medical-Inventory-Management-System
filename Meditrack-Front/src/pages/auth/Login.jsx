@@ -2,7 +2,8 @@ import React, { useEffect, useState } from 'react';
 import { Navigate, useLocation, useNavigate } from 'react-router-dom';
 import { getHomePath } from '../../constants/users';
 import { useAuth } from '../../context/AuthContext';
-import { getErrorMessage } from '../../services/apiError';
+import { FieldError } from '../../components/common/FormField';
+import { getErrorMessage, getFieldErrors } from '../../services/apiError';
 import { loginApi } from '../../services/authApi';
 import { hasSessionExpired } from '../../services/authStorage';
 import bgImage from '../../assets/Gemini_Generated_Image_hnwdqbhnwdqbhnwd.jfif';
@@ -19,6 +20,8 @@ const Login = () => {
   const [formData, setFormData] = useState({ email: '', password: '', rememberMe: false });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  // A message under each wrong input ({ email, password }), from a 422.
+  const [fieldErrors, setFieldErrors] = useState({});
   // Information that is not an error: why the user is back here, or how passwords are reset.
   const [notice, setNotice] = useState(() => (hasSessionExpired() ? SESSION_ENDED_NOTICE : ''));
   // After too many attempts (429) the server refuses every sign-in for a while, even with the
@@ -44,6 +47,7 @@ const Login = () => {
     e.preventDefault();
     if (locked) return;
     setError('');
+    setFieldErrors({});
     setNotice('');
     setLoading(true);
 
@@ -60,7 +64,10 @@ const Login = () => {
         // The message is written below from the countdown, so it always says the time left.
         setSecondsLeft(err.retryAfter ?? 60);
       } else {
-        setError(getErrorMessage(err, 'Unable to sign in. Please try again.'));
+        // A message that sits under its field is not repeated in the box above the form.
+        const errors = getFieldErrors(err);
+        setFieldErrors(errors);
+        setError(Object.keys(errors).length ? '' : getErrorMessage(err, 'Unable to sign in. Please try again.'));
       }
       setLoading(false);
     }
@@ -120,7 +127,10 @@ const Login = () => {
               </div>
             )}
 
-            <form onSubmit={handleSubmit} className="space-y-4 font-nunito">
+            {/* noValidate: the browser's own bubbles are off, so every message comes from the
+                server (or the mock), in the app's words, under the field it is about. `required`
+                stays on the inputs for screen readers. */}
+            <form noValidate onSubmit={handleSubmit} className="space-y-4 font-nunito">
               <div>
                 <label className="block text-xs font-bold text-slate-800 mb-1.5 font-nunito" htmlFor="email">
                   Email Address <span className="text-red-500">*</span>
@@ -134,8 +144,11 @@ const Login = () => {
                   placeholder="Enter your email address"
                   value={formData.email}
                   onChange={handleChange}
+                  maxLength={255}
+                  aria-invalid={Boolean(fieldErrors.email)}
                   required
                 />
+                <FieldError message={fieldErrors.email} />
               </div>
 
               <div>
@@ -151,8 +164,11 @@ const Login = () => {
                   placeholder="Enter your password"
                   value={formData.password}
                   onChange={handleChange}
+                  maxLength={255}
+                  aria-invalid={Boolean(fieldErrors.password)}
                   required
                 />
+                <FieldError message={fieldErrors.password} />
               </div>
 
               <div className="flex items-center justify-between text-xs pt-0.5 font-semibold font-nunito">
