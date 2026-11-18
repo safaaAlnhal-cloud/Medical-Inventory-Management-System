@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
 import { Plus, Filter, Calendar, ChevronDown, RotateCcw } from 'lucide-react';
-import { ACTION_BUTTON_TONE, DeleteIcon, EditIcon } from '../../components/common/ActionIcons';
+import { ACTION_BUTTON_TONE, DeleteIcon, EditIcon, HistoryIcon } from '../../components/common/ActionIcons';
 import ConfirmDialog from '../../components/common/ConfirmDialog';
 import { TableState } from '../../components/common/DataState';
 import { FieldError } from '../../components/common/FormField';
@@ -8,6 +8,7 @@ import BarcodeScanPanel from '../../components/inventory/BarcodeScanPanel';
 import InlineAlert from '../../components/common/InlineAlert';
 import Modal from '../../components/common/Modal';
 import PageHeader from '../../components/common/PageHeader';
+import TransactionHistoryModal from '../../components/transactions/TransactionHistoryModal';
 import { OUTGOING_REASON_LABELS, OUTGOING_REASONS, TRANSACTION_STATUS, TRANSACTION_STATUS_LABELS, TRANSACTION_TYPE_LABELS, TRANSACTION_TYPES } from '../../constants/inventory';
 import { useNotifications } from '../../context/NotificationsContext';
 import { useToast } from '../../context/ToastContext';
@@ -164,13 +165,16 @@ const IncomingFields = ({ form, onChange, items, manufacturers = EMPTY_LIST, err
 // An expired batch is listed but cannot be chosen: expired stock is never issued, only disposed
 // of. `keepBatchId` is the batch an edited transaction already uses; it stays selectable so an
 // issue recorded before its batch expired can still have its other details corrected.
+// `editing` (edit form only): an edit corrects something that already happened, so any expired
+// batch can be chosen while the form's date is on or before its expiry date (the stock left
+// while it was usable). The service checks the same rule on save.
 //
 // `manufacturers` (add form only) are the manufacturers with usable stock of the item. Choosing
 // one only puts its batches first; any batch can still be chosen. If the chosen batch is from
 // another manufacturer a note says so, without blocking the save: the batch decides what is
 // recorded, and the box in hand may simply come from another batch.
-const OutgoingFields = ({ form, onChange, items, batches, batchesLoading = false, errors = NO_ERRORS, keepBatchId = null, manufacturers = null, allManufacturers = EMPTY_LIST }) => {
-  const canIssueFrom = (batch) => !isExpired(batch) || sameId(batch.id, keepBatchId);
+const OutgoingFields = ({ form, onChange, items, batches, batchesLoading = false, errors = NO_ERRORS, keepBatchId = null, editing = false, manufacturers = null, allManufacturers = EMPTY_LIST }) => {
+  const canIssueFrom = (batch) => !isExpired(batch) || sameId(batch.id, keepBatchId) || (editing && Boolean(form.date) && form.date <= batch.expiryDate);
   const hasBlockedBatch = batches.some((batch) => !canIssueFrom(batch));
   const hasUsableBatch = batches.some(canIssueFrom);
   const nameOf = (id) => allManufacturers.find((manufacturer) => sameId(manufacturer.id, id))?.name;
@@ -222,7 +226,9 @@ const OutgoingFields = ({ form, onChange, items, batches, batchesLoading = false
       {/* Says why a listed batch is greyed out and what to do with it instead. */}
       {hasBlockedBatch && (
         <div role="note" className="p-3 rounded-xl text-xs font-bold bg-amber-50 text-amber-700 border border-amber-200">
-          Expired batches cannot be issued. Dispose of them from the Inventory page, in the item's batch details.
+          {editing
+            ? 'An expired batch can only be chosen when the transaction is dated on or before its expiry date.'
+            : "Expired batches cannot be issued. Dispose of them from the Inventory page, in the item's batch details."}
         </div>
       )}
       <label className="block">
@@ -266,6 +272,9 @@ const TransactionsPage = () => {
   // The transaction being edited and the values currently in its form (see newEditForm).
   const [editingTransaction, setEditingTransaction] = useState(null);
   const [editForm, setEditForm] = useState(null);
+
+  // The transaction whose edit history is open (History button, shown once it has been edited).
+  const [historyTransaction, setHistoryTransaction] = useState(null);
 
   const [transactionToCancel, setTransactionToCancel] = useState(null);
   const [cancelling, setCancelling] = useState(false);
@@ -634,6 +643,15 @@ const TransactionsPage = () => {
                             <button type="button" disabled={locked} onClick={() => { setCancelError(''); setTransactionToCancel(row); }} className={`${actionButtonClass} ${ACTION_BUTTON_TONE}`} title={locked ? lockedReason : 'Cancel Transaction'} aria-label={`Cancel transaction for ${name}`}>
                               <DeleteIcon />
                             </button>
+                            {/* Shown once the transaction was edited or cancelled. History is read-only,
+                                so it stays available on cancelled and deactivated rows. The number
+                                counts the edits; a cancellation is not an edit. */}
+                            {(row.revisionsCount > 0 || isCancelled) && (
+                              <button type="button" onClick={() => setHistoryTransaction(row)} className={`${actionButtonClass} ${ACTION_BUTTON_TONE} flex items-center gap-1`} title="History" aria-label={`History of the transaction for ${name}`}>
+                                <HistoryIcon />
+                                {row.revisionsCount > 0 && <span className="text-[11px] font-bold">{row.revisionsCount}</span>}
+                              </button>
+                            )}
                           </div>
                         </td>
                       </tr>
@@ -728,7 +746,7 @@ const TransactionsPage = () => {
               <IncomingFields form={editForm} onChange={(changes) => setEditForm({ ...editForm, ...changes })} items={inventoryItems} manufacturers={manufacturers} errors={fieldErrors} />
             ) : (
               <>
-                <OutgoingFields form={editForm} onChange={(changes) => setEditForm({ ...editForm, ...changes })} items={inventoryItems} batches={editBatches} batchesLoading={editBatchesLoading} errors={fieldErrors} keepBatchId={editingTransaction.type === OUTGOING ? editingTransaction.batchId : null} />
+                <OutgoingFields form={editForm} onChange={(changes) => setEditForm({ ...editForm, ...changes })} items={inventoryItems} batches={editBatches} batchesLoading={editBatchesLoading} errors={fieldErrors} keepBatchId={editingTransaction.type === OUTGOING ? editingTransaction.batchId : null} editing />
                 <p className="text-[11px] font-semibold text-slate-400">
                   The Unit Cost of an outgoing transaction is taken from the item's Average Cost and is not entered by hand.
                 </p>
@@ -740,6 +758,14 @@ const TransactionsPage = () => {
             </div>
           </form>
         </Modal>
+      )}
+
+      {historyTransaction && (
+        <TransactionHistoryModal
+          transaction={historyTransaction}
+          names={{ itemName, userName, batchNumber, manufacturerName }}
+          onClose={() => setHistoryTransaction(null)}
+        />
       )}
 
       {transactionToCancel && (

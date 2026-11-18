@@ -306,8 +306,8 @@ Account expiry fields (**implemented**, decision 23):
     so receiving a new batch at a different price does not change past outgoing transactions.
 - `status` is `"active"` or `"cancelled"`. `cancelledAt` (timestamp) and `cancelledBy` (user id)
   are `null` until the transaction is cancelled. See "Cancelled transactions" below.
-- `revisionsCount` (**planned** in the frontend) is the number of times the transaction has been
-  edited, `0` if never. The Transactions page shows a History button only when it is above 0.
+- `revisionsCount` (**implemented**: backend, mock and UI) is the number of times the transaction
+  has been edited, `0` if never. The Transactions page shows a History button only when it is above 0.
   See "Edit history" below.
 
 ### Notification
@@ -639,6 +639,7 @@ Rules that reject an edit (the response body carries a message the UI shows as i
 | Outgoing: quantity above what the batch has available to it (its own previous quantity counts as available) | `422` |
 | Outgoing: the batch was recorded as received after this transaction was recorded (`createdAt`) | `422` |
 | Outgoing: `date` earlier than the date the batch was received | `422` |
+| Outgoing: the batch has expired (judged by today) and `date` is after its expiry date. **Decided 2026-11-17:** an edit corrects something that already happened, so an issue dated on or before the expiry date may still raise its quantity or move onto that batch (the stock left while it was usable). A new outgoing transaction is still refused for an expired batch | `422` (`date`) |
 | Anything else that would leave a batch negative at any point of its history | `409` |
 
 Batch handling:
@@ -659,7 +660,7 @@ Until the backend exists, the frontend simulates all of this in `updateMock` in
 
 ### Edit history
 
-**Decided** (backend), **planned** (frontend). Every successful edit is recorded, so an edited
+**Implemented** (backend, mock and UI). Every successful edit is recorded, so an edited
 transaction never loses what it said before. The record is saved **in the same database
 transaction as the edit**: either both are saved or neither is.
 
@@ -683,9 +684,13 @@ transaction as the edit**: either both are saved or neither is.
 - An edit that changes nothing creates no record.
 - Cancelling is not an edit: it is recorded by `cancelledAt` / `cancelledBy` on the transaction.
 - `GET /transactions/:id/revisions` (section 4.5) returns the records, newest first.
-- **Planned (frontend):** a History button beside the row's actions, shown only when
-  `revisionsCount > 0`, opens a modal listing every edit with who, when, and old → new values.
-  The mock records edits the same way so the button works in mock mode too.
+- **Implemented (UI):** a History button beside the row's actions, shown when
+  `revisionsCount > 0` or the transaction is cancelled (also on deactivated rows: it is
+  read-only), opens a modal listing every edit with who, when, and old → new values, ids resolved
+  to names. A cancelled transaction also shows its cancellation first (Status Active →
+  Cancelled, from `cancelledBy` / `cancelledAt`); the revisions endpoint itself never lists it
+  (`TransactionHistoryModal`, `getTransactionRevisionsApi`). The mock records edits the same way
+  (`recordRevision` in `transactionsApi.js`) so the button works in mock mode too.
 
 ### Stock and expiry rules
 
@@ -1121,8 +1126,13 @@ from as an outgoing transaction of `itemId`:
 `quantity` is what is available **to this transaction**: its own current quantity counts as
 available again, the batch it received itself is left out, and so are batches received after it
 was recorded. The edit form uses it for the batch list, so the UI never calculates stock.
-**Planned:** each row also carries `manufacturerId`, and an optional `&manufacturerId=` puts that
-manufacturer's batches first (phase 4, with editing).
+**Implemented** (backend): each row also carries `manufacturerId`, and an optional
+`&manufacturerId=` puts that manufacturer's batches first, in the same order as the Outgoing
+create form's list below. An expired batch is listed last; its `quantity` is what is left in it
+when the transaction's stored `date` is on or before the expiry date, otherwise `0` (the edit
+rule "expired batch" above; if the edit changes the date, `PUT` checks it again). `[]` for an
+archived or unknown item; `404` for an unknown transaction; `422` if `itemId` is missing or not
+a number, or `manufacturerId` is not a number. The mock does not sort or zero expired batches.
 
 **Implemented** (backend, mock and form): the Outgoing create form gets its list from
 `GET /inventory/:id/batch-options?manufacturerId=`:

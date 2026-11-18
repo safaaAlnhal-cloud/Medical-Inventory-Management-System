@@ -40,7 +40,7 @@ class OutgoingTransactionTest extends TestCase
             'id' => $response->json('id'), 'type' => 'outgoing', 'itemId' => $this->item->id, 'batchId' => $first->id,
             'quantity' => 4, 'date' => '2026-11-13', 'createdAt' => $response->json('createdAt'),
             'recordedBy' => $this->user->id, 'unitCost' => 7, 'recipient' => 'Emergency Dept', 'reason' => 'issue',
-            'status' => 'active', 'cancelledAt' => null, 'cancelledBy' => null,
+            'status' => 'active', 'cancelledAt' => null, 'cancelledBy' => null, 'revisionsCount' => 0,
         ]);
         $this->assertSame(6, $first->fresh()->quantity);
         $this->assertSame('7.0000', $this->item->fresh()->avg_unit_cost, 'an issue never changes the average');

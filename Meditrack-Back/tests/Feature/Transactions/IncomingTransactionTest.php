@@ -48,7 +48,7 @@ class IncomingTransactionTest extends TestCase
             'createdAt' => $response->json('createdAt'), 'recordedBy' => $this->user->id, 'unitCost' => 8,
             'supplier' => 'BioLab', 'expiryDate' => '2027-03-01',
             'manufacturerId' => $batch->manufacturer_id, 'manufacturingDate' => '2026-08-15',
-            'status' => 'active', 'cancelledAt' => null, 'cancelledBy' => null,
+            'status' => 'active', 'cancelledAt' => null, 'cancelledBy' => null, 'revisionsCount' => 0,
         ]);
 
         $this->assertSame('BioLab Pharma', $batch->manufacturer->name);

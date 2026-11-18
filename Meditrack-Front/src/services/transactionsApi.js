@@ -13,7 +13,8 @@ import { request } from './request';
 // { id, type, itemId, batchId, quantity, date, createdAt, recordedBy (userId),
 //   unitCost, supplier, expiryDate, manufacturerId, manufacturingDate (incoming only),
 //   recipient, reason (outgoing only),
-//   status ('active' | 'cancelled'), cancelledAt, cancelledBy (userId) }
+//   status ('active' | 'cancelled'), cancelledAt, cancelledBy (userId),
+//   revisionsCount (how many times it was edited; 0 if never) }
 // reason:   outgoing only. 'issue' = usable stock given to `recipient`; 'expired_disposal' =
 //           expired stock removed from its batch (no recipient). Null on incoming.
 // batchId:  the unique id of the batch the stock was received into / issued from.
@@ -45,7 +46,73 @@ export const mapTransaction = (dto) => ({
   status: dto.status ?? TRANSACTION_STATUS.ACTIVE,
   cancelledAt: dto.cancelledAt ?? null,
   cancelledBy: dto.cancelledBy ?? null,
+  revisionsCount: Number(dto.revisionsCount) || 0,
 });
+
+// Edit history record: { id, transactionId, editedBy (userId), editedAt (timestamp),
+//   oldValues, newValues }. oldValues / newValues hold only the fields that changed, with the
+//   request's field names and raw values (ids, ISO dates, numbers); see REVISION_FIELDS.
+export const mapTransactionRevision = (dto) => ({
+  id: dto.id,
+  transactionId: dto.transactionId,
+  editedBy: dto.editedBy,
+  editedAt: dto.editedAt,
+  oldValues: dto.oldValues ?? {},
+  newValues: dto.newValues ?? {},
+});
+
+// The fields an edit history record can hold, in the order they are shown.
+export const REVISION_FIELDS = [
+  'type', 'itemId', 'quantity', 'date', 'unitCost', 'batchId', 'recipient',
+  'batchNumber', 'expiryDate', 'supplier', 'manufacturerId', 'manufacturingDate',
+];
+
+// MOCK BUSINESS LOGIC. What an edit history record compares, as the backend does
+// (TransactionService::revisionValues): an incoming transaction is described by the batch it
+// received, an outgoing one by the batch it issues from and its recipient.
+const revisionValues = (db, tx) => {
+  const values = { type: tx.type, itemId: tx.itemId, quantity: tx.quantity, date: tx.date, unitCost: tx.unitCost == null ? null : Number(tx.unitCost) };
+  if (tx.type === TRANSACTION_TYPES.INCOMING) {
+    const batch = db.batches.find((candidate) => candidate.id === tx.batchId) ?? {};
+    return {
+      ...values,
+      batchNumber: batch.batchNumber ?? null,
+      expiryDate: batch.expiryDate ?? null,
+      supplier: batch.supplier ?? null,
+      manufacturerId: batch.manufacturerId ?? null,
+      manufacturingDate: batch.manufacturingDate ?? null,
+    };
+  }
+  return { ...values, batchId: tx.batchId, recipient: tx.recipient ?? null };
+};
+
+// Saves only the fields that changed; an edit that changes nothing leaves no record. A field one
+// type has and the other has not counts as null on the side that lacks it.
+const recordRevision = (db, tx, before) => {
+  const after = revisionValues(db, tx);
+  const oldValues = {};
+  const newValues = {};
+  for (const field of new Set([...Object.keys(before), ...Object.keys(after)])) {
+    const was = before[field] ?? null;
+    const is = after[field] ?? null;
+    if (was !== is) {
+      oldValues[field] = was;
+      newValues[field] = is;
+    }
+  }
+  if (Object.keys(oldValues).length === 0) return;
+  db.transactionRevisions.push({
+    id: nextId(db.transactionRevisions),
+    transactionId: tx.id,
+    editedBy: requireCurrentUser().id,
+    editedAt: new Date().toISOString(),
+    oldValues,
+    newValues,
+  });
+};
+
+const revisionsCountOf = (db, id) => db.transactionRevisions.filter((revision) => revision.transactionId === id).length;
+const withRevisionsCount = (db, tx) => ({ ...tx, revisionsCount: revisionsCountOf(db, tx.id) });
 
 const byNewest = (a, b) => b.createdAt.localeCompare(a.createdAt);
 
@@ -57,7 +124,8 @@ const listMock = (db, type, { search, itemId, from, to }) => {
     .filter((tx) => !itemId || tx.itemId === itemId)
     .filter((tx) => (!from || tx.date >= from) && (!to || tx.date <= to))
     .filter((tx) => matchesSearch([itemNames.get(tx.itemId), batchNumbers.get(tx.batchId), tx.supplier, tx.recipient, userNames.get(tx.recordedBy), manufacturerNames.get(tx.manufacturerId), isDisposal(tx) ? OUTGOING_REASON_LABELS[tx.reason] : null], search))
-    .sort(byNewest);
+    .sort(byNewest)
+    .map((tx) => withRevisionsCount(db, tx));
 };
 
 // ---- Mock-side validation, shared by creating and editing ---------------------------------
@@ -299,7 +367,7 @@ const cancelMock = (db, id) => {
     cancelledBy: requireCurrentUser().id,
   });
   commit();
-  return transaction;
+  return withRevisionsCount(db, transaction);
 };
 
 // The batches of `itemId` that `transaction` could issue from if it were an outgoing
@@ -356,6 +424,8 @@ const updateMock = (db, id, payload) => {
 
   const wasIncoming = transaction.type === TRANSACTION_TYPES.INCOMING;
   const itemChanged = item.id !== transaction.itemId;
+  // For the edit history: what the transaction said before this edit.
+  const before = revisionValues(db, transaction);
   // Stock already issued from the batch this transaction received.
   const ownIssues = wasIncoming ? issuesFrom(db, transaction.batchId) : [];
   const issued = totalQuantity(ownIssues);
@@ -405,13 +475,11 @@ const updateMock = (db, id, payload) => {
     const available = receipt.quantity - totalQuantity(issuesFrom(db, batch.id, transaction.id));
     if (quantity > available) throw invalid(`Only ${available} available in batch ${batch.batchNumber}.`, 422, 'quantity');
     if (date < receipt.date) throw invalid(`The date cannot be earlier than ${formatDate(receipt.date)}, when batch ${batch.batchNumber} was received.`, 422, 'date');
-    // An issue recorded before its batch expired stays editable (its recipient or date can be
-    // corrected), but an edit can never take more stock out of a batch that has expired since,
-    // nor move the transaction onto an expired batch.
-    if (getExpiryStatus(batch.expiryDate) === EXPIRY_STATUS.EXPIRED) {
-      const sameBatch = !wasIncoming && batch.id === transaction.batchId;
-      if (!sameBatch) throw invalid(`Batch ${batch.batchNumber} expired on ${formatDate(batch.expiryDate)} and cannot be issued.`, 422, 'batchId');
-      if (quantity > transaction.quantity) throw invalid(`Batch ${batch.batchNumber} expired on ${formatDate(batch.expiryDate)}. No more stock can be issued from it.`, 422, 'quantity');
+    // An edit corrects something that already happened: stock from a batch that has expired
+    // since may be issued as long as the transaction is dated on or before the expiry date (it
+    // left while it was still usable). A new outgoing transaction is still judged by today.
+    if (getExpiryStatus(batch.expiryDate) === EXPIRY_STATUS.EXPIRED && date > batch.expiryDate) {
+      throw invalid(`Batch ${batch.batchNumber} expired on ${formatDate(batch.expiryDate)}. Stock issued from it must be dated on or before that day.`, 422, 'date');
     }
     const recipient = requireText(payload.recipient, 'recipient', 'Recipient is required.');
 
@@ -425,7 +493,9 @@ const updateMock = (db, id, payload) => {
 
   // Safety net behind the specific messages above: nothing inconsistent is ever saved.
   if (!isStockConsistent(db)) throw invalid('This change would leave the stock records inconsistent, so it was not saved.', 409);
-  return transaction;
+  // In the same transact() as the edit: either both are kept or neither is.
+  recordRevision(db, transaction, before);
+  return withRevisionsCount(db, transaction);
 };
 
 const listTransactions = async (type, { search = '', itemId, from, to } = {}) => {
@@ -552,6 +622,22 @@ export const getItemBatchOptionsApi = async (itemId, { manufacturerId } = {}) =>
     expiryStatus: dto.expiryStatus ?? null,
     manufacturerId: dto.manufacturerId ?? null,
   }));
+};
+
+// The transaction's edit history, newest first: [] if it was never edited. Fails with 404 if
+// the transaction does not exist. Cancelling is not an edit and is not listed here.
+export const getTransactionRevisionsApi = async (id) => {
+  const dtos = await request({
+    delay: 100,
+    api: () => http.get(`/transactions/${id}/revisions`),
+    mock: (db) => {
+      findTransaction(db, id);
+      return db.transactionRevisions
+        .filter((revision) => revision.transactionId === id)
+        .sort((a, b) => b.editedAt.localeCompare(a.editedAt) || b.id - a.id);
+    },
+  });
+  return dtos.map(mapTransactionRevision);
 };
 
 // Marks the transaction as cancelled (it is never deleted) and resolves with the updated record.

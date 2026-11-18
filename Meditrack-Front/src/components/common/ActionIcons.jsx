@@ -1,5 +1,5 @@
 import React from 'react';
-import { Eye, Pencil, Trash } from 'lucide-react';
+import { Eye, History, Pencil, Trash } from 'lucide-react';
 
 // The icons of the action buttons in table rows (view details, edit, delete / cancel), drawn the
 // same way everywhere. The button around each icon sets its size and gray colour.
@@ -16,6 +16,11 @@ export const ViewIcon = ({ className = ACTION_ICON_CLASS }) => (
 // A solid pencil: the body is filled with the icon colour.
 export const EditIcon = ({ className = ACTION_ICON_CLASS }) => (
   <Pencil aria-hidden="true" fill="currentColor" strokeWidth={1.75} className={className} />
+);
+
+// Edit history: a clock with a backwards arrow.
+export const HistoryIcon = ({ className = ACTION_ICON_CLASS }) => (
+  <History aria-hidden="true" strokeWidth={2.25} className={className} />
 );
 
 // A solid trash can: the can is filled with the icon colour, the lid stays a line.

@@ -44,6 +44,8 @@ class TransactionResource extends JsonResource
             'status' => $this->status->value,
             'cancelledAt' => $this->cancelled_at?->toISOString(),
             'cancelledBy' => $this->cancelled_by,
+            // The lists load it with withCount('revisions'); a single transaction counts it here.
+            'revisionsCount' => $this->revisions_count ?? $this->revisions()->count(),
         ];
     }
 }
