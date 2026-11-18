@@ -3,6 +3,7 @@
 use App\Http\Controllers\Transactions\DisposalTransactionController;
 use App\Http\Controllers\Transactions\IncomingTransactionController;
 use App\Http\Controllers\Transactions\OutgoingTransactionController;
+use App\Http\Controllers\Transactions\TransactionController;
 use Illuminate\Support\Facades\Route;
 
 // Owner: Developer A. Phases 2-4. BACKEND_HANDOFF.md section 4.5.
@@ -23,5 +24,9 @@ Route::prefix('transactions')->group(function () {
     Route::get('/outgoing', [OutgoingTransactionController::class, 'index']);
     Route::post('/outgoing', [OutgoingTransactionController::class, 'store']);
     Route::post('/disposal', [DisposalTransactionController::class, 'store']);
+    Route::put('/{transaction}', [TransactionController::class, 'update']);
+    Route::get('/{transaction}/batch-options', [TransactionController::class, 'batchOptions']);
+    Route::get('/{transaction}/revisions', [TransactionController::class, 'revisions']);
+    Route::patch('/{transaction}/cancel', [TransactionController::class, 'cancel']);
 });
 

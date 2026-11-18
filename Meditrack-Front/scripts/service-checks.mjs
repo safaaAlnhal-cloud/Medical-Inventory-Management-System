@@ -517,6 +517,35 @@ try {
     assert.ok((await transactions.getIncomingTransactionsApi({ search: 'brand new' })).some((tx) => tx.id === created.id));
   });
 
+  check('edit history: each edit records only what changed, newest first, and a no-op records nothing', async () => {
+    await signIn(STOREKEEPER);
+    const saved = await transactions.createIncomingTransactionApi(incoming({ batchNumber: 'HIST-1', quantity: 10, unitCost: 5 }));
+    assert.equal(saved.revisionsCount, 0);
+    assert.deepEqual(await transactions.getTransactionRevisionsApi(saved.id), []);
+
+    const edit = { type: 'incoming', itemId: saved.itemId, quantity: 10, date: saved.date, batchNumber: 'HIST-1', unitCost: 5, expiryDate: saved.expiryDate, supplier: saved.supplier, manufacturer: null, manufacturingDate: null };
+    const first = await transactions.updateTransactionApi(saved.id, { ...edit, quantity: 8, unitCost: 4.5 });
+    assert.equal(first.revisionsCount, 1);
+    await signIn(ADMIN);
+    await transactions.updateTransactionApi(saved.id, { ...edit, quantity: 8, unitCost: 4.5, supplier: 'History Supplier' });
+    // Nothing changed: no record.
+    const same = await transactions.updateTransactionApi(saved.id, { ...edit, quantity: 8, unitCost: 4.5, supplier: 'History Supplier' });
+    assert.equal(same.revisionsCount, 2);
+
+    const history = await transactions.getTransactionRevisionsApi(saved.id);
+    assert.equal(history.length, 2);
+    assert.deepEqual([history[0].oldValues, history[0].newValues], [{ supplier: saved.supplier }, { supplier: 'History Supplier' }]);
+    assert.deepEqual([history[1].oldValues, history[1].newValues], [{ quantity: 10, unitCost: 5 }, { quantity: 8, unitCost: 4.5 }]);
+    assert.notEqual(history[0].editedBy, history[1].editedBy, 'who edited comes from the session');
+    const listed = (await transactions.getIncomingTransactionsApi()).find((tx) => tx.id === saved.id);
+    assert.equal(listed.revisionsCount, 2);
+
+    // A rejected edit records nothing.
+    await rejection(transactions.updateTransactionApi(saved.id, { ...edit, quantity: 0 }), 422, 'quantity');
+    assert.equal((await transactions.getTransactionRevisionsApi(saved.id)).length, 2);
+    await rejection(transactions.getTransactionRevisionsApi(99999), 404);
+  });
+
   check('incoming: a unit cost of 0 is allowed, and create and edit apply the same rule', async () => {
     await signIn(STOREKEEPER);
     const saved = await transactions.createIncomingTransactionApi(incoming({ unitCost: 0 }));
@@ -715,8 +744,13 @@ try {
     assert.deepEqual([saved.reason, saved.recipient, saved.unitCost], ['issue', 'Ward', 6.3333]);
     const item = await findItem(itemId);
     assert.deepEqual([item.quantity, item.expiredQuantity], [15, 10]);
-    // An edit cannot move an issue onto the expired batch either.
-    await rejection(transactions.updateTransactionApi(saved.id, { type: 'outgoing', itemId, quantity: 5, date: today, batchId: expiredBatchId, recipient: 'Ward' }), 422, 'batchId');
+    // An edit corrects something that already happened (decided 2026-11-17): it may move an
+    // issue onto the expired batch only if the issue is dated on or before its expiry date.
+    const onto = (date) => ({ type: 'outgoing', itemId, quantity: 5, date, batchId: expiredBatchId, recipient: 'Ward' });
+    const late = await rejection(transactions.updateTransactionApi(saved.id, onto(today)), 422, 'date');
+    assert.match(late.message, /must be dated on or before that day/);
+    const corrected = await transactions.updateTransactionApi(saved.id, onto(EXPIRED_ON));
+    assert.equal(corrected.batchId, expiredBatchId);
   });
 
   check('dashboard: both roles get the same stock alerts, in priority order, and the chart keeps disposals apart', async () => {

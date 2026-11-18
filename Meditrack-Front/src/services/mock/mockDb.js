@@ -27,6 +27,9 @@ const seed = () => {
     items: clone(mockInventoryItems),
     batches: clone(mockBatches),
     transactions: clone(mockTransactions),
+    // Edit history: { id, transactionId, editedBy, editedAt, oldValues, newValues }, one record
+    // per edit that changed something, with only the fields that changed. Never deleted.
+    transactionRevisions: [],
     // Archive history: one record per archiving, completed when the item is restored. Never deleted.
     itemArchivals: [],
     // Factory barcodes: { id, itemId, manufacturerId, barcode }. Unique in the whole system.
@@ -40,7 +43,7 @@ const seed = () => {
 const load = () => {
   try {
     const stored = JSON.parse(sessionStorage.getItem(STORAGE_KEY));
-    return stored?.users && stored?.manufacturers && stored?.items && stored?.batches && stored?.transactions && stored?.itemArchivals && stored?.itemBarcodes ? stored : null;
+    return stored?.users && stored?.manufacturers && stored?.items && stored?.batches && stored?.transactions && stored?.transactionRevisions && stored?.itemArchivals && stored?.itemBarcodes ? stored : null;
   } catch {
     return null;
   }
