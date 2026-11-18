@@ -15,7 +15,7 @@ import { seedNotificationState, syncNotifications } from './mockSelectors';
 // sessionStorage, so changes survive a page refresh and reset when the browser tab is closed.
 // Only services may import this module; pages and components never touch it.
 // Bump the version whenever the seed data shape changes, so stale stored copies are dropped.
-const STORAGE_KEY = 'meditrack.mockDb.v10';
+const STORAGE_KEY = 'meditrack.mockDb.v11';
 
 const clone = (value) => JSON.parse(JSON.stringify(value));
 
@@ -111,9 +111,9 @@ export const authorize = (access) => {
   return user;
 };
 
-// The current alerts with the signed-in user's own read state.
+// The alerts the signed-in user may see, in priority order, with their own read state.
 export const readNotifications = () => {
-  const { list, changed } = syncNotifications(getDb(), requireCurrentUser().id);
+  const { list, changed } = syncNotifications(getDb(), requireCurrentUser());
   if (changed) commit();
   return list;
 };

@@ -6,20 +6,28 @@ import { selectNameMaps } from './mock/mockSelectors';
 import { request } from './request';
 
 // Frontend notification model:
-// { id, type ('low_stock' | 'expiring' | 'out_of_stock'), itemId, quantity, minQty,
-//   batchId, expiryDate, expiryStatus, createdAt, read }
+// { id, type ('low_stock' | 'expiring' | 'out_of_stock' | 'account_expiring' |
+//   'account_expires_today'), itemId, quantity, minQty, batchId, expiryDate, expiryStatus,
+//   userId, accountExpiresOn, daysLeft, createdAt, read }
 // batchId, expiryDate and expiryStatus ('expired' | 'expiring_soon') are set on 'expiring'
 // notifications only. If an API leaves expiryStatus out, it is worked out here with the shared
-// rule. The UI builds the title and description from these fields (utils/notifications.js).
+// rule. Account alerts carry userId (the account concerned), accountExpiresOn and daysLeft
+// instead of the item fields, which are null. The list comes in priority order (section 4.6).
+// The UI builds the title and description from these fields (utils/notifications.js).
+const toNumberOrNull = (value) => (value == null ? null : Number(value));
+
 export const mapNotification = (dto) => ({
   id: String(dto.id),
   type: dto.type,
-  itemId: dto.itemId,
-  quantity: Number(dto.quantity) || 0,
-  minQty: dto.minQty == null ? null : Number(dto.minQty),
+  itemId: dto.itemId ?? null,
+  quantity: toNumberOrNull(dto.quantity),
+  minQty: toNumberOrNull(dto.minQty),
   batchId: dto.batchId ?? null,
   expiryDate: dto.expiryDate ?? null,
   expiryStatus: dto.expiryStatus === undefined ? getExpiryStatus(dto.expiryDate) : dto.expiryStatus,
+  userId: dto.userId ?? null,
+  accountExpiresOn: dto.accountExpiresOn ?? null,
+  daysLeft: toNumberOrNull(dto.daysLeft),
   createdAt: dto.createdAt,
   read: Boolean(dto.read),
 });
@@ -30,11 +38,17 @@ const markReadBy = (db, id, userId) => {
   if (!readBy.includes(userId)) readBy.push(userId);
 };
 
-// Mock-side search, shared with the dashboard alerts.
+// Mock-side search, shared with the dashboard alerts: the item name, the type as words
+// ("low stock", "account expiring"), the batch number and the account holder's name.
 export const searchMockNotifications = (db, notifications, search) => {
-  const { itemNames, batchNumbers } = selectNameMaps(db);
+  const { itemNames, batchNumbers, userNames } = selectNameMaps(db);
   return notifications.filter((notification) =>
-    matchesSearch([itemNames.get(notification.itemId), notification.type.replace(/_/g, ' '), batchNumbers.get(notification.batchId)], search));
+    matchesSearch([
+      itemNames.get(notification.itemId),
+      notification.type.replace(/_/g, ' '),
+      batchNumbers.get(notification.batchId),
+      userNames.get(notification.userId),
+    ], search));
 };
 
 export const getNotificationsApi = async ({ search = '' } = {}) => {

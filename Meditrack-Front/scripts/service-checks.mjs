@@ -70,6 +70,12 @@ try {
   const manufacturers = await load('services/manufacturersApi.js');
   const { resolveDateRange } = await load('utils/reports.js');
   const { toISODate } = await load('utils/dates.js');
+  const { isoDateFromNow } = await load('mockData/mockDates.js');
+
+  // The priority rank of an alert (BACKEND_HANDOFF.md 4.6): expired 1, out of stock 2,
+  // expiring soon 3, low stock 4, account last day 5, account expiring 6.
+  const ALERT_RANKS = { out_of_stock: 2, low_stock: 4, account_expires_today: 5, account_expiring: 6 };
+  const alertRank = (alert) => (alert.type === 'expiring' ? (alert.expiryStatus === 'expired' ? 1 : 3) : ALERT_RANKS[alert.type]);
 
   const ADMIN = { email: 'sara@medcenter.ps', password: 'admin123' };
   const STOREKEEPER = { email: 'omar@medcenter.ps', password: 'store123' };
@@ -713,14 +719,16 @@ try {
     await rejection(transactions.updateTransactionApi(saved.id, { type: 'outgoing', itemId, quantity: 5, date: today, batchId: expiredBatchId, recipient: 'Ward' }), 422, 'batchId');
   });
 
-  check('dashboard: both roles get the same alerts, most severe first, and the chart keeps disposals apart', async () => {
+  check('dashboard: both roles get the same stock alerts, in priority order, and the chart keeps disposals apart', async () => {
     const { itemId, expiredBatchId } = await setUpMedicineA();
-    const rank = (alert) => (alert.type === 'out_of_stock' ? 0 : alert.type === 'low_stock' ? 1 : alert.expiryStatus === 'expired' ? 2 : 3);
-    const storekeeperAlerts = await dashboard.getCriticalAlertsApi({ limit: 5 });
-    const ranks = storekeeperAlerts.map(rank);
-    assert.deepEqual(ranks, [...ranks].sort((a, b) => a - b), 'most severe first');
+    const storekeeperAlerts = await dashboard.getCriticalAlertsApi({ limit: 50 });
+    const ranks = storekeeperAlerts.map(alertRank);
+    assert.deepEqual(ranks, [...ranks].sort((a, b) => a - b), 'in priority order');
+    assert.deepEqual((await dashboard.getCriticalAlertsApi({ limit: 2 })).map((alert) => alert.id), storekeeperAlerts.slice(0, 2).map((alert) => alert.id));
     await signIn(ADMIN);
-    assert.deepEqual((await dashboard.getCriticalAlertsApi({ limit: 5 })).map((alert) => alert.id), storekeeperAlerts.map((alert) => alert.id));
+    // The admin also gets Reem's account alert, after every stock alert.
+    const adminAlerts = await dashboard.getCriticalAlertsApi({ limit: 50 });
+    assert.deepEqual(adminAlerts.map((alert) => alert.id), [...storekeeperAlerts.map((alert) => alert.id), 'account_expiring-3']);
 
     const month = today.slice(0, 7);
     const before = (await dashboard.getStockMovementApi()).find((entry) => entry.month === month);
@@ -916,6 +924,63 @@ try {
     await signIn(STOREKEEPER);
     assert.equal(await notifications.getUnreadNotificationsCountApi(), unreadBefore - 1);
     await rejection(notifications.markNotificationReadApi('no-such-alert'), 404);
+  });
+
+  check('notifications: the list is in priority order, equal alerts newest first', async () => {
+    await signIn(ADMIN);
+    const list = await notifications.getNotificationsApi();
+    const ranks = list.map(alertRank);
+    assert.deepEqual(ranks, [...ranks].sort((a, b) => a - b));
+    for (let i = 1; i < list.length; i += 1) {
+      const [before, after] = [list[i - 1], list[i]];
+      if (alertRank(before) !== alertRank(after)) continue;
+      if (before.type === 'expiring') assert.ok(before.expiryDate <= after.expiryDate, 'expiry alerts: earliest date first');
+      else if (before.daysLeft !== null) assert.ok(before.daysLeft <= after.daysLeft, 'account alerts: fewest days left first');
+      else assert.ok(before.createdAt >= after.createdAt, 'stock alerts: newest first');
+    }
+  });
+
+  check('notifications: an account alert goes to the admin and the account holder only', async () => {
+    const reemAlert = {
+      id: 'account_expiring-3', type: 'account_expiring', userId: 3, daysLeft: 5,
+      itemId: null, batchId: null, quantity: null, minQty: null, expiryDate: null, expiryStatus: null,
+    };
+    const pick = (alert) => Object.fromEntries(Object.keys(reemAlert).map((key) => [key, alert?.[key]]));
+
+    await signIn(ADMIN);
+    assert.deepEqual(pick((await notifications.getNotificationsApi()).find((alert) => alert.id === reemAlert.id)), reemAlert);
+    assert.deepEqual((await notifications.getNotificationsApi({ search: 'haboush' })).map((alert) => alert.id), [reemAlert.id]);
+    assert.deepEqual((await notifications.getNotificationsApi({ search: 'account' })).map((alert) => alert.id), [reemAlert.id]);
+
+    await signIn({ email: 'reem@medcenter.ps', password: 'store123' });
+    assert.ok((await notifications.getNotificationsApi()).some((alert) => alert.id === reemAlert.id));
+
+    await signIn(STOREKEEPER);
+    assert.ok(!(await notifications.getNotificationsApi()).some((alert) => alert.userId !== null), 'Omar sees no account alert');
+    await rejection(notifications.markNotificationReadApi(reemAlert.id), 404);
+  });
+
+  check('notifications: account alerts follow the account date and status', async () => {
+    await signIn(ADMIN);
+    const accountAlerts = async () => (await notifications.getNotificationsApi()).filter((alert) => alert.userId !== null).map((alert) => alert.id);
+    const reem = (await users.getUsersApi()).find((user) => user.id === 3);
+    const edit = (changes) => users.updateUserApi(3, { name: reem.name, email: reem.email, status: 'active', accountExpiresOn: reem.accountExpiresOn, ...changes });
+
+    // The 7-day alert was read; the last-day alert is a new one, unread.
+    await notifications.markAllNotificationsReadApi();
+    await edit({ accountExpiresOn: today });
+    const [lastDay] = (await notifications.getNotificationsApi()).filter((alert) => alert.userId === 3);
+    assert.deepEqual([lastDay.id, lastDay.daysLeft, lastDay.read], ['account_expires_today-3', 0, false]);
+    assert.equal(alertRank(lastDay), 5);
+
+    await edit({ accountExpiresOn: isoDateFromNow(8) });
+    assert.deepEqual(await accountAlerts(), [], 'more than 7 days left');
+    await edit({ accountExpiresOn: isoDateFromNow(7) });
+    assert.deepEqual(await accountAlerts(), ['account_expiring-3']);
+    await edit({ status: 'inactive' });
+    assert.deepEqual(await accountAlerts(), [], 'an inactive account raises none');
+    await edit({ accountExpiresOn: null });
+    assert.deepEqual(await accountAlerts(), [], 'an account that never expires raises none');
   });
 
   for (const { name, run } of checks) {

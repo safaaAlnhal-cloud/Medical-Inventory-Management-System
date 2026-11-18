@@ -12,6 +12,9 @@ export const STATUS_LABELS = {
   out_of_stock: 'Out of Stock',
   expiring_soon: 'Expiring Soon',
   expired: 'Expired',
+  // The badges of the two account alerts on the dashboards (not stock statuses).
+  account_expiring: 'Account Expiring',
+  account_expires_today: 'Last Day',
 };
 
 export const getStockStatus = (quantity, minQty = 0) => {
