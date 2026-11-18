@@ -1,8 +1,8 @@
 import React, { useCallback, useMemo, useState } from 'react';
-import { AlertTriangle, AlertOctagon } from 'lucide-react';
+import { AlertTriangle, AlertOctagon, UserX } from 'lucide-react';
 import { EmptyState, ErrorState, LoadingState } from '../../components/common/DataState';
 import PageHeader from '../../components/common/PageHeader';
-import { NOTIFICATION_TYPES } from '../../constants/inventory';
+import { isAccountAlert, NOTIFICATION_TYPES } from '../../constants/inventory';
 import { useNotifications } from '../../context/NotificationsContext';
 import { useToast } from '../../context/ToastContext';
 import { useAsyncData } from '../../hooks/useAsyncData';
@@ -19,9 +19,18 @@ const TABS = [
   { id: NOTIFICATION_TYPES.LOW_STOCK, label: 'Low Stock' },
   { id: NOTIFICATION_TYPES.EXPIRING, label: 'Expiry' },
   { id: NOTIFICATION_TYPES.OUT_OF_STOCK, label: 'Out of Stock' },
+  // Both account alert types: only the admin and the account's owner receive them.
+  { id: 'accounts', label: 'Accounts' },
 ];
 
-const NotificationIcon = ({ tone }) => (tone === 'danger' ? (
+// The tab a notification belongs to: its type, or "accounts" for the two account types.
+const tabOf = (notification) => (isAccountAlert(notification) ? 'accounts' : notification.type);
+
+const NotificationIcon = ({ tone, account }) => (account ? (
+  <div className={`w-10 h-10 rounded-xl border flex items-center justify-center shrink-0 ${tone === 'danger' ? 'bg-rose-50 border-rose-100' : 'bg-amber-50 border-amber-100'}`}>
+    <UserX className={`w-5 h-5 ${tone === 'danger' ? 'text-rose-500' : 'text-amber-500'}`} />
+  </div>
+) : tone === 'danger' ? (
   <div className="w-10 h-10 rounded-xl bg-rose-50 border border-rose-100 flex items-center justify-center shrink-0">
     <AlertOctagon className="w-5 h-5 text-rose-500" />
   </div>
@@ -44,11 +53,11 @@ const NotificationsPage = () => {
   // Tab counts always reflect the notifications currently loaded.
   const counts = useMemo(() => {
     const result = { all: notifications.length };
-    for (const notification of notifications) result[notification.type] = (result[notification.type] || 0) + 1;
+    for (const notification of notifications) result[tabOf(notification)] = (result[tabOf(notification)] || 0) + 1;
     return result;
   }, [notifications]);
 
-  const visibleNotifications = activeTab === 'all' ? notifications : notifications.filter((notification) => notification.type === activeTab);
+  const visibleNotifications = activeTab === 'all' ? notifications : notifications.filter((notification) => tabOf(notification) === activeTab);
   const hasUnread = notifications.some((notification) => !notification.read);
 
   const handleMarkAsRead = async (id) => {
@@ -75,7 +84,7 @@ const NotificationsPage = () => {
     <main className="p-4 sm:p-6 lg:p-8 space-y-6 flex-1">
       <PageHeader
         title="Notifications & Alerts"
-        subtitle="Stay on top of stock shortages and expiry risks."
+        subtitle="Stay on top of stock shortages, expiry risks and expiring accounts."
         actions={(
           <button type="button" onClick={handleMarkAllAsRead} disabled={!hasUnread} className="text-xs font-bold text-[#115e54] hover:underline transition cursor-pointer disabled:text-slate-400 disabled:no-underline disabled:cursor-default">
             Mark all as read
@@ -121,7 +130,7 @@ const NotificationsPage = () => {
                 className={`card-hover bg-white p-5 rounded-2xl border border-slate-200/80 shadow-sm flex items-center justify-between gap-4 transition hover:border-slate-300 ${notification.read ? 'opacity-60' : ''}`}
               >
                 <div className="flex items-center gap-4 min-w-0">
-                  <NotificationIcon tone={tone} />
+                  <NotificationIcon tone={tone} account={isAccountAlert(notification)} />
                   <div className="min-w-0">
                     <h4 className="text-xs font-extrabold text-slate-900 mb-0.5 truncate flex items-center gap-2">
                       {!notification.read && <span className="w-2 h-2 rounded-full bg-red-500 shrink-0" aria-label="Unread" />}

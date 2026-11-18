@@ -1,5 +1,5 @@
 import React from 'react';
-import { AlertCircle, AlertTriangle, CalendarClock, CalendarX, CheckCircle2, ChevronRight } from 'lucide-react';
+import { AlertCircle, AlertTriangle, CalendarClock, CalendarX, CheckCircle2, ChevronRight, UserX } from 'lucide-react';
 import { STATUS_LABELS } from '../../utils/stock';
 
 // A titled card: the frame every dashboard section sits in.
@@ -39,6 +39,9 @@ const STATUS_STYLES = {
   expiring_soon: { Icon: CalendarClock, tile: 'bg-low-stock-soft text-low-stock-text', badge: 'bg-low-stock-soft text-low-stock-text border-low-stock/40' },
   out_of_stock: { Icon: AlertCircle, tile: 'bg-danger-soft text-out-of-stock-text', badge: 'bg-danger-soft text-out-of-stock-text border-out-of-stock/30' },
   expired: { Icon: CalendarX, tile: 'bg-expired-soft text-expired-text', badge: 'bg-expired-soft text-expired-text border-expired/20' },
+  // Account alerts (Notifications, phase 4): amber while days are left, red on the last day.
+  account_expiring: { Icon: UserX, tile: 'bg-low-stock-soft text-low-stock-text', badge: 'bg-low-stock-soft text-low-stock-text border-low-stock/40' },
+  account_expires_today: { Icon: UserX, tile: 'bg-danger-soft text-out-of-stock-text', badge: 'bg-danger-soft text-out-of-stock-text border-out-of-stock/30' },
 };
 const UNKNOWN_STATUS = { Icon: AlertCircle, tile: 'bg-sage-soft text-muted', badge: 'bg-dashboard-bg text-muted border-card-border' };
 

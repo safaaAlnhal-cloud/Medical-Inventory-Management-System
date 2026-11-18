@@ -13,6 +13,7 @@ use App\Models\ItemBarcode;
 use App\Models\Manufacturer;
 use App\Models\Transaction;
 use App\Models\User;
+use App\Services\NotificationService;
 use App\Services\StockService;
 use Illuminate\Support\Carbon;
 use Illuminate\Database\Seeder;
@@ -56,6 +57,8 @@ class DemoDataSeeder extends Seeder
             $this->seedBatches();
             $this->seedTransactions();
             $this->recalculateStock();
+            // The stock alerts were synced by recalculate(); this adds the account alerts (Reem).
+            app(NotificationService::class)->syncAll();
         });
     }
 

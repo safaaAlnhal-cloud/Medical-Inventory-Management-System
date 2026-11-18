@@ -1,4 +1,4 @@
-import { NOTIFICATION_TYPES, TRANSACTION_TYPES } from '../constants/inventory';
+import { TRANSACTION_TYPES } from '../constants/inventory';
 import { toMonthKey } from '../utils/dates';
 import { ACCESS } from '../constants/users';
 import { EXPIRY_STATUS, STOCK_STATUS } from '../utils/stock';
@@ -38,15 +38,6 @@ const mapCriticalRow = (dto) => ({
   quantity: Number(dto.quantity) || 0,
   status: dto.status,
 });
-
-// Severity order of dashboard alerts, most severe first: out of stock, low stock, then expiry,
-// where a batch that has already expired comes before one that is only expiring soon.
-// Alerts of the same rank keep the notifications order (newest first).
-const alertRank = (alert) => {
-  if (alert.type === NOTIFICATION_TYPES.OUT_OF_STOCK) return 0;
-  if (alert.type === NOTIFICATION_TYPES.LOW_STOCK) return 1;
-  return alert.expiryStatus === EXPIRY_STATUS.EXPIRED ? 2 : 3;
-};
 
 export const getDashboardSummaryApi = async () => {
   const dto = await request({
@@ -105,15 +96,14 @@ export const getCriticalInventoryApi = async ({ search = '' } = {}) => {
   return dtos.map(mapCriticalRow);
 };
 
-// Most severe alerts first (see alertRank). Same model as notifications, and the same alerts any
-// signed-in user can read there, so both dashboards use it.
+// The first alerts of the notifications list, which is already in priority order (BACKEND_HANDOFF.md
+// 4.6: expired, out of stock, expiring soon, low stock, then accounts). Same model and the same
+// alerts the user can read on the Notifications page, so both dashboards use it.
 export const getCriticalAlertsApi = async ({ search = '', limit = 3 } = {}) => {
   const dtos = await request({
     delay: 100,
     api: () => http.get('/dashboard/alerts', { params: { search: search || undefined, limit } }),
-    mock: (db) => searchMockNotifications(db, readNotifications(), search)
-      .sort((a, b) => alertRank(a) - alertRank(b))
-      .slice(0, limit),
+    mock: (db) => searchMockNotifications(db, readNotifications(), search).slice(0, limit),
   });
   return dtos.map(mapNotification);
 };

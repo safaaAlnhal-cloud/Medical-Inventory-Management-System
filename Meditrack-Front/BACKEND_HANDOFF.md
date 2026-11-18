@@ -316,19 +316,23 @@ Account expiry fields (**implemented**, decision 23):
   "batchId": 9, "expiryDate": "2026-10-20", "expiryStatus": "expiring_soon",
   "createdAt": "2026-10-08T07:55:00.000Z", "read": false }
 ```
-- `type` is `"low_stock"`, `"out_of_stock"` or `"expiring"`.
+- `type` is `"low_stock"`, `"out_of_stock"`, `"expiring"`, `"account_expiring"` or
+  `"account_expires_today"`. Every field is always sent; those that do not apply are `null`.
 - `expiring` notifications are per batch and carry `batchId`, `expiryDate`, the batch `quantity`
   and `expiryStatus`: `"expired"` or `"expiring_soon"`. An expired batch is never reported as
-  merely expiring: the UI words it "has expired" and shows it in red. For the other two types
-  `batchId`, `expiryDate` and `expiryStatus` are `null`, and `quantity` / `minQty` are the item's.
+  merely expiring: the UI words it "has expired" and shows it in red. For `low_stock` and
+  `out_of_stock`, `batchId`, `expiryDate` and `expiryStatus` are `null`, and `quantity` / `minQty`
+  are the item's (`quantity` is its available stock).
+- The figures (`quantity`, `minQty`, `expiryStatus`, `daysLeft`) are worked out when the alert is
+  read, so they always match the inventory and today's date.
 - The frontend writes the title and description from these fields.
 - Read state is stored **per user**: one user reading an alert leaves it unread for the others.
 - Section 4.6 lists which alerts exist and when.
 
-**Planned:** account alerts (decision 23) use the same shape with two new types,
-`account_expiring` and `account_expires_today`. They carry `userId` (the account concerned),
-`accountExpiresOn` and `daysLeft`; `itemId`, `batchId`, `quantity`, `minQty`, `expiryDate` and
-`expiryStatus` are `null`. Stock and expiry alerts carry `userId: null`.
+**Implemented:** account alerts (decision 23) use the same shape with the two account types.
+They carry `userId` (the account concerned), `accountExpiresOn` and `daysLeft` (0 on the last
+day); `itemId`, `batchId`, `quantity`, `minQty`, `expiryDate` and `expiryStatus` are `null`.
+Stock and expiry alerts carry `userId`, `accountExpiresOn` and `daysLeft` as `null`.
 ```json
 { "id": "account_expiring-3", "type": "account_expiring", "userId": 3, "accountExpiresOn": "2026-11-14",
   "daysLeft": 5, "itemId": null, "batchId": null, "quantity": null, "minQty": null,
@@ -885,7 +889,7 @@ deleted: an account that should no longer be used is set to `inactive`. Because 
 cannot deactivate their own account, the system always keeps an active admin.
 `lastActiveAt` is updated at login (open decision 15).
 
-#### Account expiry (decided, decision 23; implemented except the alerts, which come with section 4.6)
+#### Account expiry (decided, decision 23; implemented, alerts included: section 4.6)
 
 An **account** expires, not a password. There is no password expiry.
 
@@ -1162,40 +1166,58 @@ edited and cancelled it is always kept (`recordedBy`, the edit history, `cancell
 
 | Method | Endpoint | Access | Notes |
 |---|---|---|---|
-| GET | `/notifications?search=` | Any signed-in user | Returns `Notification[]`, newest first today; **planned:** in priority order (below). The frontend filters by type and counts per tab itself |
+| GET | `/notifications?search=` | Any signed-in user | Returns the `Notification[]` the user may see, in priority order (below). The frontend filters by tab and counts per tab itself |
 | GET | `/notifications/unread-count` | Any signed-in user | Returns `{ "count": 3 }`. Drives the red dot on the bell |
-| PATCH | `/notifications/:id/read` | Any signed-in user | Returns the updated `Notification` |
-| PATCH | `/notifications/read-all` | Any signed-in user | No body needed in the response |
+| PATCH | `/notifications/:id/read` | Any signed-in user | Returns the updated `Notification`. `:id` is the alert's id, e.g. `low_stock-4` |
+| PATCH | `/notifications/read-all` | Any signed-in user | `204`, no body. Marks only the alerts the user can see |
 
-`search` matches the item name, the type (as words, e.g. "low stock") and the batch number.
-`PATCH /notifications/:id/read` returns `404` for an alert that no longer exists.
+`search` matches the item name, the type (as words, e.g. "low stock", "account expiring"), the
+batch number and the account holder's name. `PATCH /notifications/:id/read` returns `404` for an
+alert that no longer exists or that the user may not see; marking an alert read twice is not an
+error.
 
 Notifications reflect the current state of the **active** inventory (see the rules in section 3).
 When a problem is resolved, for example after restocking, its notification should disappear.
 
-Which alerts exist (**backend must** generate these; the mock derives them on every read):
+Which alerts exist (**implemented**: the backend stores them, the mock derives them on every read):
 
 | Alert | One per | Raised while |
 |---|---|---|
 | `low_stock` | item | The item is `low_stock` |
 | `out_of_stock` | item | The item is `out_of_stock` **and has received stock before** (a new, never-stocked item raises none) |
 | `expiring` | batch | A batch with stock is `expired` (raised until its stock is disposed of) or `expiring_soon`; `expiryStatus` says which, and a batch is never both |
-
-| `account_expiring` (**planned**) | storekeeper account | 1–7 days are left before `accountExpiresOn` and the account is active |
-| `account_expires_today` (**planned**) | storekeeper account | Today is `accountExpiresOn` and the account is active |
+| `account_expiring` | storekeeper account | 1–7 days are left before `accountExpiresOn` and the account is active |
+| `account_expires_today` | storekeeper account | Today is `accountExpiresOn` and the account is active |
 
 - An item has at most one stock alert, and each batch at most one expiry alert, so the same
   condition is never reported twice. Archived items raise none.
-- There are no notifications for individual transactions or sign-ins. **Planned:** the two
-  account alerts above are the only alerts about users.
-- **Who sees which alert (planned).** Stock and expiry alerts: every signed-in user, as today.
+- There are no notifications for individual transactions or sign-ins. The two account alerts
+  above are the only alerts about users.
+- **Who sees which alert (implemented).** Stock and expiry alerts: every signed-in user.
   Account alerts: the admin, and the storekeeper whose account it is; other storekeepers never see
-  them. `unread-count`, `/dashboard/alerts` and search follow the same rule. `search` also matches
-  the account holder's name and "account".
+  them. `unread-count`, `read-all`, `/dashboard/alerts` and search follow the same rule.
 - The 7-day alert and the last-day alert are two separate alerts, so the last-day one arrives
   unread even if the first was read.
 
-**Priority order (decided, decision 24; planned).** All alert types are kept, Low Stock
+**How the backend keeps them (decided, closes open decision 14).** The `notifications` table holds
+the alert conditions that exist right now, one row per `id`; their figures are worked out when
+read. `NotificationService` brings them up to date:
+
+- `syncItem` after every stock change (StockService: incoming, outgoing, disposal, edit, cancel),
+  after archive and restore, and after an edit of `minQty`.
+- `syncUser` when a user is created, or its status or `accountExpiresOn` changes.
+- `syncAll` every night at 00:05 (`php artisan notifications:sync`, scheduled in
+  `routes/console.php`), for the alerts that come with the date alone: a batch becoming expiring
+  soon or expired, an account's last 7 days or last day. Where the scheduler is not running, the
+  first notifications read of a new day runs it. The demo seeder runs it too.
+
+A sync adds the alerts that started (`createdAt` = when the condition was first seen, unread for
+everyone) and deletes the resolved ones with their read marks. An alert that stays keeps its `id`,
+`createdAt` and read state, also when it changes from expiring soon to expired (same batch, same
+`id`). An alert that comes back after being resolved is a new, unread alert; so is a change of
+type (`low_stock` to `out_of_stock`, or the account's last day).
+
+**Priority order (decided, decision 24; implemented).** All alert types are kept, Low Stock
 included; only the order changes. `GET /notifications` and `/dashboard/alerts` return:
 
 | Rank | Alert | Within the rank |
@@ -1206,13 +1228,15 @@ included; only the order changes. `GET /notifications` and `/dashboard/alerts` r
 | 4 | `low_stock` | Newest first |
 | 5 | `account_expires_today`, then `account_expiring` | Fewest days left first |
 
+Equal alerts (same rank and the same date or days left) are newest first.
+
 **Decided:** account alerts come last, after every stock alert, and
-`/dashboard/critical-inventory` uses the same ranks 1–4. The Notifications page keeps its tabs; **planned:** an "Accounts" tab for the two
-new types. The mock must return the same order.
-- **Mock only:** an alert's `id` is `<type>-<itemId or batchId>` and its `createdAt` is when the
-  mock first saw the condition. **Open decision:** whether the backend stores alerts or derives
-  them, what `createdAt` means, and whether an alert that comes back after being resolved is
-  unread again (in the mock it is).
+`/dashboard/critical-inventory` uses the same ranks 1–4. **Implemented:** the Notifications page
+keeps its tabs and adds an "Accounts" tab for the two account types. The mock returns the same
+order and applies the same audience rule.
+- An alert's `id` is `<type>-<itemId, batchId or userId>` (e.g. `low_stock-4`, `expiring-9`,
+  `account_expiring-3`), in the backend and in the mock. Its `createdAt` is when the condition was
+  first seen.
 - The bell's red dot uses `GET /notifications/unread-count`. It is refreshed on every page
   change and after any action that can change stock; there is no polling or push.
 
@@ -1223,7 +1247,7 @@ new types. The mock must return the same order.
 | GET | `/dashboard/summary` | Any signed-in user | `{ "totalItems": 6, "availableCount": 3, "lowStockCount": 2, "outOfStockCount": 1, "expiringSoonCount": 2, "expiredCount": 0 }` |
 | GET | `/dashboard/stock-movement?months=6` | Admin | `[{ "month": "2026-05", "incoming": 180, "outgoing": 70, "disposed": 0 }]`, oldest month first, one entry per month even when zero |
 | GET | `/dashboard/critical-inventory?search=` | Storekeeper | `[{ "id": "low_stock-2", "itemId": 2, "categoryId": 1, "quantity": 15, "status": "low_stock" }]` |
-| GET | `/dashboard/alerts?search=&limit=3` | Any signed-in user | `Notification[]`, most severe first. Today: out of stock, low stock, expired, then expiring soon; equal ranks newest first. **Planned:** the priority order of section 4.6 (expired, out of stock, expiring soon, low stock, accounts). Both dashboards show the first 5 |
+| GET | `/dashboard/alerts?search=&limit=3` | Any signed-in user | The first `limit` (1–50, default 3) alerts of `GET /notifications`, in the priority order of section 4.6 (expired, out of stock, expiring soon, low stock, accounts). Both dashboards show the first 5 |
 | GET | `/dashboard/recent-transactions?search=&limit=5` | Any signed-in user | Active `Transaction[]` of both types, newest first |
 
 - Every summary value is a **number of active items**, so nothing adds boxes to bottles.
@@ -1474,7 +1498,7 @@ be sent without the UI.
    and keep the full archive history (planned).
 7. **Cancelling.** Never delete a transaction; enforce the rules in "Cancelled transactions".
 8. **Notifications.** Generate the alerts in section 4.6, store read state per user, show account
-   alerts only to their audience and return every list in priority order (planned).
+   alerts only to their audience and return every list in priority order (implemented).
 9. **Accounts.** Refuse login (`403`) and every request (`401`) for an expired account; never let
    the admin account expire (implemented). Setting `accountExpiresOn` from the Users page is
    planned (section 4.2).
@@ -1521,7 +1545,7 @@ planned.
 | 11 | Can more admins be created, roles changed, users deleted? | Decided | One admin from the seeder; only storekeepers are created; no role changes; users are deactivated, never deleted |
 | 12 | May a storekeeper edit their own name / email / phone? | Open | Endpoint allows it; UI does not offer it. Changing one's own email is deferred (decision 27) |
 | 13 | Self-service password reset by email | Open | Not available; an admin sets a new password |
-| 14 | Are alerts stored or derived; meaning of `createdAt`; unread again when they return? | Open | Derived from the stock state; `createdAt` is when the condition was first seen; unread again when it returns |
+| 14 | Are alerts stored or derived; meaning of `createdAt`; unread again when they return? | Decided | Stored: the current alert conditions, kept up to date by `NotificationService` (section 4.6), with their figures worked out when read; `createdAt` is when the condition was first seen; unread again when it returns |
 | 15 | When is `lastActiveAt` updated? | Open | At login only |
 | 16 | Is stock valued at the item's Average Cost or per batch? Should a disposal produce an accounting write-off? | Decided | One moving Average Cost per item, for available, expired and disposed stock. Expired stock awaiting disposal stays in the quantity the average is built on; a disposal does not change the average. No write-off entry |
 | 17 | Who may see the reports? | Decided | Both roles, all four reports (storekeeper page planned) |

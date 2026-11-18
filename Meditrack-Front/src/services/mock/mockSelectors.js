@@ -1,6 +1,6 @@
 import { NOTIFICATION_TYPES, OUTGOING_REASONS, TRANSACTION_STATUS, TRANSACTION_TYPES } from '../../constants/inventory';
-import { isAccountExpired } from '../../constants/users';
-import { toISODate } from '../../utils/dates';
+import { isAccountExpired, ROLES, USER_STATUS } from '../../constants/users';
+import { daysUntil, toISODate } from '../../utils/dates';
 import { EXPIRY_STATUS, getExpiryStatus, getStockStatus, STOCK_STATUS } from '../../utils/stock';
 
 // Read-side helpers for the mock database. They play the role of the backend's queries:
@@ -250,15 +250,24 @@ export const selectCriticalInventory = (inventory) =>
     return rows;
   });
 
+// The fields an account alert leaves empty, and the ones a stock or expiry alert leaves empty,
+// so every alert has the same shape (BACKEND_HANDOFF.md section 3, "Notification").
+const NO_ACCOUNT = { userId: null, accountExpiresOn: null, daysLeft: null };
+const NO_ITEM = { itemId: null, quantity: null, minQty: null, batchId: null, expiryDate: null, expiryStatus: null };
+
+// An account alert is raised from this many days before accountExpiresOn (backend:
+// NotificationService::ACCOUNT_WARNING_DAYS).
+const ACCOUNT_WARNING_DAYS = 7;
+
 // Stock alerts follow the item's AVAILABLE stock, so expired stock never hides a shortage.
 // Each batch with stock raises at most one expiry alert: "expired" (awaiting disposal, raised
 // until the stock is disposed of) or "expiring soon", never both.
-const selectAlerts = (db) =>
+const selectStockAlerts = (db) =>
   selectInventory(db).flatMap((item) => {
     const alerts = [];
     if (needsStockAlert(item)) {
       const type = item.status === STOCK_STATUS.OUT ? NOTIFICATION_TYPES.OUT_OF_STOCK : NOTIFICATION_TYPES.LOW_STOCK;
-      alerts.push({ id: `${type}-${item.id}`, type, itemId: item.id, quantity: item.quantity, minQty: item.minQty, batchId: null, expiryDate: null, expiryStatus: null });
+      alerts.push({ id: `${type}-${item.id}`, type, itemId: item.id, quantity: item.quantity, minQty: item.minQty, batchId: null, expiryDate: null, expiryStatus: null, ...NO_ACCOUNT });
     }
     for (const batch of item.batches) {
       const { expiryStatus } = batch;
@@ -273,19 +282,66 @@ const selectAlerts = (db) =>
         expiryDate: batch.expiryDate,
         // 'expired' or 'expiring_soon': an expired batch is never reported as merely expiring.
         expiryStatus,
+        ...NO_ACCOUNT,
       });
     }
     return alerts;
   });
+
+// One alert per active storekeeper account close to its last day (backend:
+// NotificationService::accountAlerts): account_expires_today on that day, account_expiring while
+// 1-7 days are left. None for the admin, an inactive account, or once the account has expired.
+const selectAccountAlerts = (db, now = new Date()) =>
+  db.users.flatMap((user) => {
+    if (user.role !== ROLES.STOREKEEPER || user.status !== USER_STATUS.ACTIVE || !user.accountExpiresOn) return [];
+    const daysLeft = daysUntil(user.accountExpiresOn, now);
+    const type = daysLeft === 0 ? NOTIFICATION_TYPES.ACCOUNT_EXPIRES_TODAY
+      : daysLeft >= 1 && daysLeft <= ACCOUNT_WARNING_DAYS ? NOTIFICATION_TYPES.ACCOUNT_EXPIRING
+        : null;
+    return type ? [{ id: `${type}-${user.id}`, type, ...NO_ITEM, userId: user.id, accountExpiresOn: user.accountExpiresOn, daysLeft }] : [];
+  });
+
+const selectAlerts = (db, now = new Date()) => [...selectStockAlerts(db), ...selectAccountAlerts(db, now)];
+
+// Stock and expiry alerts are for everyone; an account alert only for the admin and the
+// storekeeper whose account it is (backend: Notification::visibleTo).
+const canSee = (user, alert) => alert.userId === null || user.role === ROLES.ADMIN || alert.userId === user.id;
+
+// The priority order (decision 24, BACKEND_HANDOFF.md 4.6; backend: Notification::priority):
+//   1 expired batch     oldest expiry date first
+//   2 out of stock      newest first
+//   3 expiring soon     nearest expiry date first
+//   4 low stock         newest first
+//   5 account last day, 6 account expiring     fewest days left first
+// Equal alerts: newest first.
+const ALERT_RANKS = {
+  [NOTIFICATION_TYPES.OUT_OF_STOCK]: 2,
+  [NOTIFICATION_TYPES.LOW_STOCK]: 4,
+  [NOTIFICATION_TYPES.ACCOUNT_EXPIRES_TODAY]: 5,
+  [NOTIFICATION_TYPES.ACCOUNT_EXPIRING]: 6,
+};
+const alertRank = (alert) => {
+  if (alert.type === NOTIFICATION_TYPES.EXPIRING) return alert.expiryStatus === EXPIRY_STATUS.EXPIRED ? 1 : 3;
+  return ALERT_RANKS[alert.type];
+};
+const newestFirst = (a, b) => b.createdAt.localeCompare(a.createdAt);
+export const compareAlerts = (a, b) => {
+  const rank = alertRank(a) - alertRank(b);
+  if (rank !== 0) return rank;
+  if (a.type === NOTIFICATION_TYPES.EXPIRING) return a.expiryDate.localeCompare(b.expiryDate) || newestFirst(a, b);
+  if (a.daysLeft !== null) return a.daysLeft - b.daysLeft || newestFirst(a, b);
+  return newestFirst(a, b);
+};
 
 // Notifications are the current alerts plus their stored state:
 //   db.notificationState[alertId] = { createdAt, readBy: [userId, ...] }
 // The alert itself is shared, but read state is per user: `read` is true only for the users
 // listed in readBy. An alert that is no longer true (e.g. after restocking) drops out; if it
 // comes back later it is unread again for everyone.
-// Returns { list, changed } so the caller can persist when the stored state was updated.
-export const syncNotifications = (db, userId, now = new Date()) => {
-  const alerts = selectAlerts(db);
+// The stored state is kept for every alert; `list` holds only those `user` may see, in priority
+// order. Returns { list, changed } so the caller can persist when the stored state was updated.
+export const syncNotifications = (db, user, now = new Date()) => {
+  const alerts = selectAlerts(db, now);
   const activeIds = new Set(alerts.map((alert) => alert.id));
   let changed = false;
 
@@ -299,16 +355,18 @@ export const syncNotifications = (db, userId, now = new Date()) => {
       changed = true;
     }
     const state = db.notificationState[alert.id];
-    return { ...alert, createdAt: state.createdAt, read: state.readBy.includes(userId) };
+    return { ...alert, createdAt: state.createdAt, read: state.readBy.includes(user.id) };
   });
 
-  list.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
-  return { list, changed };
+  return { list: list.filter((alert) => canSee(user, alert)).sort(compareAlerts), changed };
 };
 
 // Gives the seeded alerts staggered ages ("20 minutes ago", "1 hour ago", ...).
 export const seedNotificationState = (db) => {
-  const typeOrder = [NOTIFICATION_TYPES.LOW_STOCK, NOTIFICATION_TYPES.EXPIRING, NOTIFICATION_TYPES.OUT_OF_STOCK];
+  const typeOrder = [
+    NOTIFICATION_TYPES.LOW_STOCK, NOTIFICATION_TYPES.EXPIRING, NOTIFICATION_TYPES.OUT_OF_STOCK,
+    NOTIFICATION_TYPES.ACCOUNT_EXPIRING, NOTIFICATION_TYPES.ACCOUNT_EXPIRES_TODAY,
+  ];
   const ageMinutes = [20, 60, 120, 240, 1500];
   selectAlerts(db)
     .sort((a, b) => typeOrder.indexOf(a.type) - typeOrder.indexOf(b.type))
