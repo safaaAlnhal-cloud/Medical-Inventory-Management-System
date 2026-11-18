@@ -16,6 +16,11 @@ import { createServer } from 'vite';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
+// These checks test the mock layer, whatever .env says: with VITE_USE_MOCK_DATA=false (to try
+// the app against the real backend) they would otherwise send requests to that server.
+// Vite lets a variable already set in the environment win over the .env file.
+process.env.VITE_USE_MOCK_DATA = 'true';
+
 const memoryStorage = () => {
   const values = new Map();
   return {
@@ -179,6 +184,40 @@ try {
     await rejection(auth.getCurrentUserApi(), 401);
   });
 
+  // The Login and Users forms are noValidate: the browser checks nothing, so every case must be
+  // caught here with the backend's messages, and all the wrong fields reported at once.
+  check('login: every field is checked by the service (422 lists them all, like LoginRequest)', async () => {
+    const both = await rejection(auth.loginApi({ email: '   ', password: '' }), 422);
+    assert.deepEqual(both.fieldErrors, { email: 'Enter your email.', password: 'Enter your password.' });
+    const format = await rejection(auth.loginApi({ email: 'sara@medcenter', password: 'x' }), 422, 'email');
+    assert.equal(format.fieldErrors.email, 'Enter a valid email address.');
+    const long = await rejection(auth.loginApi({ email: ADMIN.email, password: 'p'.repeat(256) }), 422, 'password');
+    assert.equal(long.fieldErrors.password, 'The password may not be longer than 255 characters.');
+    // A password is never trimmed: spaces only is a (wrong) password, not a missing one.
+    await rejection(auth.loginApi({ email: ADMIN.email, password: '   ' }), 401);
+  });
+
+  check('users: every field is checked by the service, all at once, before the free-email 409', async () => {
+    await signIn(ADMIN);
+    const empty = await rejection(users.createUserApi({ name: '', email: '', password: '' }), 422);
+    assert.deepEqual(Object.keys(empty.fieldErrors).sort(), ['email', 'name', 'password']);
+    const limits = await rejection(users.createUserApi({ name: 'n'.repeat(256), email: 'ahmad@medcenter', password: 'p'.repeat(256), accountExpiresOn: '2026-02-31' }), 422);
+    assert.deepEqual(limits.fieldErrors, {
+      name: 'Full name may not be longer than 255 characters.',
+      email: 'Please enter a valid email address.',
+      password: 'The password may not be longer than 255 characters.',
+      accountExpiresOn: 'Please enter a valid date.',
+    });
+    // A wrong field and a taken email: the 422 comes first, like the backend.
+    await rejection(users.createUserApi({ name: '', email: STOREKEEPER.email, password: 'secret1' }), 422, 'name');
+    const edit = await rejection(users.updateUserApi(3, { name: '', email: 'reem@medcenter', status: '', accountExpiresOn: 'soon' }), 422);
+    assert.deepEqual(Object.keys(edit.fieldErrors).sort(), ['accountExpiresOn', 'email', 'name', 'status']);
+    await rejection(users.resetUserPasswordApi(2, { newPassword: 'p'.repeat(256) }), 422, 'newPassword');
+    // A new password is kept exactly as typed, spaces included.
+    await users.resetUserPasswordApi(2, { newPassword: '  pass12  ' });
+    assert.equal((await auth.loginApi({ email: STOREKEEPER.email, password: '  pass12  ' })).user.id, 2);
+  });
+
   check('users: validation, no self-deactivation, admin password reset', async () => {
     const admin = await signIn(ADMIN);
     await rejection(users.createUserApi({ name: '   ', email: 'new@medcenter.ps', password: 'secret1' }), 422, 'name');
@@ -338,6 +377,10 @@ try {
     const item = await inventory.createInventoryItemApi({ name: 'Barcode Item', categoryId: 2, unit: 'box', minQty: 0 });
     await rejection(inventory.linkBarcodeApi(item.id, { barcode: '625 123', manufacturer: 'PharmaCo' }), 422, 'barcode');
     await rejection(inventory.linkBarcodeApi(item.id, { barcode: '625123', manufacturer: '  ' }), 422, 'manufacturer');
+    // The form has noValidate: both empty fields are reported at once, each under its input.
+    const bothEmpty = await inventory.linkBarcodeApi(item.id, { barcode: '', manufacturer: '' }).catch((err) => err);
+    assert.deepEqual(bothEmpty.fieldErrors, { barcode: 'Enter the barcode.', manufacturer: 'Enter the manufacturer of this barcode.' });
+    await rejection(inventory.linkBarcodeApi(item.id, { barcode: '625123', manufacturer: 'x'.repeat(151) }), 422, 'manufacturer');
 
     const linked = await inventory.linkBarcodeApi(item.id, { barcode: ' 625123 ', manufacturer: 'Brand New Labs' });
     assert.equal(linked.barcodes.length, 1);

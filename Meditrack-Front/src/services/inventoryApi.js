@@ -1,7 +1,7 @@
 import { UNITS } from '../constants/inventory';
 import { EXPIRY_STATUS, getExpiryStatus, getStockStatus } from '../utils/stock';
 import { http } from './apiAxios';
-import { ApiError, fieldError } from './apiError';
+import { ApiError, checkFields, fieldError } from './apiError';
 import { commit, matchesSearch, nextId, requireCurrentUser } from './mock/mockDb';
 import { resolveManufacturer } from './mock/mockManufacturers';
 import { selectArchivedInventory, selectInventory, selectItem, selectNameMaps } from './mock/mockSelectors';
@@ -319,6 +319,7 @@ export const getItemArchiveHistoryApi = async (id) => {
 // manufacturer. Barcodes are compared exactly. An archived item's barcodes cannot change (409).
 
 const MAX_BARCODE_LENGTH = 64;
+const MAX_MANUFACTURER_LENGTH = 150;
 const BARCODE_ARCHIVED = 'This item is deactivated. Reactivate it before changing its barcodes.';
 
 const requireBarcode = (value) => {
@@ -355,8 +356,17 @@ export const linkBarcodeApi = async (itemId, { barcode, manufacturer }) => {
     api: () => http.post(`/inventory/${itemId}/barcodes`, { barcode, manufacturer }),
     mock: (db) => {
       const item = findItem(db, itemId);
-      const code = requireBarcode(barcode);
-      if (!String(manufacturer ?? '').trim()) throw fieldError('manufacturer', 'Enter the manufacturer of this barcode.');
+      // Both fields are checked together, so the form shows a message under each wrong input
+      // at once, as the backend's LinkBarcodeRequest does.
+      const { code } = checkFields({
+        code: () => requireBarcode(barcode),
+        manufacturer: () => {
+          const name = String(manufacturer ?? '').trim();
+          if (!name) throw fieldError('manufacturer', 'Enter the manufacturer of this barcode.');
+          if (name.length > MAX_MANUFACTURER_LENGTH) throw fieldError('manufacturer', `Manufacturer may not be longer than ${MAX_MANUFACTURER_LENGTH} characters.`);
+          return name;
+        },
+      });
       if (item.archived) throw new ApiError(BARCODE_ARCHIVED, { status: 409 });
       const owner = db.itemBarcodes.find((existing) => existing.barcode === code);
       if (owner) throw fieldError('barcode', `This barcode is already linked to "${findItem(db, owner.itemId).name}".`, 409);

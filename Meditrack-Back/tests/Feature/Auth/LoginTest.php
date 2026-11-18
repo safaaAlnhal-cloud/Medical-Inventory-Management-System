@@ -89,16 +89,40 @@ class LoginTest extends TestCase
             ->assertUnprocessable()
             ->assertJsonPath('errors.email', 'Enter a valid email address.')
             ->assertJsonPath('errors.password', 'Enter your password.');
+
+        // Every field is checked here: the Login form leaves all checking to the server (noValidate).
+        $this->postJson('/api/auth/login', ['email' => '   ', 'password' => ''])
+            ->assertUnprocessable()
+            ->assertJsonPath('errors.email', 'Enter your email.')
+            ->assertJsonPath('errors.password', 'Enter your password.');
+        $this->postJson('/api/auth/login', ['email' => 'omar@medcenter', 'password' => 'x'])
+            ->assertJsonPath('errors.email', 'Enter a valid email address.');
+        $this->postJson('/api/auth/login', ['email' => str_repeat('a', 250).'@b.ps', 'password' => str_repeat('p', 256)])
+            ->assertJsonPath('errors.email', 'Enter a valid email address.')
+            ->assertJsonPath('errors.password', 'The password may not be longer than 255 characters.');
     }
 
     public function test_login_is_limited_to_5_attempts_a_minute(): void
     {
+        $this->makeUser();
         for ($attempt = 1; $attempt <= 5; $attempt++) {
             $this->postJson('/api/auth/login', ['email' => 'omar@medcenter.ps', 'password' => 'wrong'])->assertUnauthorized();
         }
 
-        $this->postJson('/api/auth/login', ['email' => 'omar@medcenter.ps', 'password' => 'wrong'])->assertTooManyRequests()
-            ->assertJsonPath('message', 'Too Many Attempts.');
+        $response = $this->postJson('/api/auth/login', ['email' => 'omar@medcenter.ps', 'password' => 'wrong'])->assertTooManyRequests();
+        $seconds = $response->json('retryAfter');
+        $this->assertIsInt($seconds);
+        $this->assertGreaterThanOrEqual(1, $seconds);
+        $this->assertLessThanOrEqual(60, $seconds);
+        $response->assertJsonPath('message', "Too many attempts. Please wait {$seconds} seconds and try again.")
+            ->assertHeader('Retry-After', $seconds);
+
+        // Even the right password waits: the limit counts attempts, not wrong passwords.
+        $this->postJson('/api/auth/login', ['email' => 'omar@medcenter.ps', 'password' => 'store123'])->assertTooManyRequests();
+
+        // Once the minute has passed, signing in works again.
+        $this->travel(61)->seconds();
+        $this->postJson('/api/auth/login', ['email' => 'omar@medcenter.ps', 'password' => 'store123'])->assertOk();
     }
 
     public function test_me_returns_the_user_the_token_belongs_to(): void

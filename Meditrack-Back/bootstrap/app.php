@@ -4,6 +4,7 @@ use App\Http\Middleware\EnsureUserHasRole;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
+use Illuminate\Http\Exceptions\ThrottleRequestsException;
 use Illuminate\Http\Request;
 use Illuminate\Validation\ValidationException;
 use Symfony\Component\HttpFoundation\Response;
@@ -21,6 +22,11 @@ return Application::configure(basePath: dirname(__DIR__))
         $middleware->alias([
             'role' => EnsureUserHasRole::class,
         ]);
+
+        // Passwords are kept exactly as typed. Laravel already leaves "password" alone, but our
+        // camelCase fields were trimmed: a new password "  pass12  " was saved as "pass12", and
+        // signing in with what was typed then failed.
+        $middleware->trimStrings(except: ['newPassword', 'currentPassword']);
     })
     ->withExceptions(function (Exceptions $exceptions): void {
         $exceptions->shouldRenderJsonWhen(
@@ -38,6 +44,22 @@ return Application::configure(basePath: dirname(__DIR__))
             $errors = collect($e->errors())->map(fn (array $messages) => $messages[0]);
 
             return response()->json(['message' => $errors->first(), 'errors' => $errors], $e->status);
+        });
+
+        // 429 (throttle:5,1 on POST /auth/login): says how long to wait, and sends the seconds as
+        // retryAfter so the form can count down. The Retry-After header is sent too, but a page on
+        // another origin (the React app) cannot read it. Registered before the general HTTP
+        // handler below, which would otherwise answer first with "Too Many Attempts.".
+        $exceptions->render(function (ThrottleRequestsException $e, Request $request) {
+            if (! $request->is('api/*')) {
+                return null;
+            }
+            $seconds = max(1, (int) ($e->getHeaders()['Retry-After'] ?? 60));
+
+            return response()->json([
+                'message' => "Too many attempts. Please wait {$seconds} seconds and try again.",
+                'retryAfter' => $seconds,
+            ], 429, $e->getHeaders());
         });
 
         // Every HTTP error (abort(403), an unknown record, an unknown route...) gets a clean

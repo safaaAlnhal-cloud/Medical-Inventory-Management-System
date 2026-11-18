@@ -21,7 +21,9 @@ class StoreUserRequest extends FormRequest
         return [
             // Laravel trims every input and turns "" into null, so a name of only spaces fails required.
             'name' => ['required', 'string', 'max:255'],
-            'email' => ['required', 'string', 'email', 'max:255'],
+            // email:filter (PHP's own check) also refuses an address with no dot after the @, such as
+            // "a@b", like the frontend's check does. Its message key stays "email.email".
+            'email' => ['required', 'string', 'email:filter', 'max:255'],
             'password' => ['required', 'string', 'min:6', 'max:255'],
             // Only storekeepers are created: the one admin comes from the seeder.
             'role' => ['sometimes', 'in:'.UserRole::Storekeeper->value],

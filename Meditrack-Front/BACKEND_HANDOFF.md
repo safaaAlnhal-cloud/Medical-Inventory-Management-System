@@ -812,7 +812,7 @@ Errors (**implemented**, backend and mock):
 | Unknown email or wrong password | `401` | "Invalid email or password." (the same for both) |
 | Account is inactive | `403` | "This account is inactive. Please contact an administrator." |
 | Account has expired | `403` | "This account expired on 2026-11-14. Please contact an administrator." |
-| More than 5 attempts a minute from one address | `429` | "Too Many Attempts." |
+| More than 5 attempts a minute from one address (the right password too) | `429` | "Too many attempts. Please wait N seconds and try again." The body also has `"retryAfter": N` (seconds; the `Retry-After` header is sent too but a page on another origin cannot read it). The Login page counts down and disables the button until then. The mock does not limit attempts |
 
 The inactive and expired checks run only after the password is right, so only the account's
 owner learns its state. A successful login updates the user's `lastActiveAt`.
@@ -836,6 +836,14 @@ reset-by-email flow is wanted later, it needs two new public endpoints (for exam
 and a new page; neither exists today.
 
 ### 4.2 Users
+
+**Implemented: the Login form and the two Users forms are `noValidate`.** The browser's own
+"Please fill in this field" bubbles are off, so every message comes from the server (or the mock),
+in the app's words, under its field; one `422` lists every wrong field at once. So every rule
+must be checked by the server: an email needs a dot after the `@` (`email:filter`, so
+`"ahmad@medcenter"` is refused), names, emails and passwords are at most 255 characters, and
+passwords (`password`, `newPassword`, `currentPassword`) are never trimmed: they are kept exactly
+as typed. Other forms still use the browser's checks.
 
 | Method | Endpoint | Access | Notes |
 |---|---|---|---|

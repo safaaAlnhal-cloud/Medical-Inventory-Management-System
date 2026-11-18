@@ -1,7 +1,7 @@
 import { ACCESS, isAccountExpired, MIN_PASSWORD_LENGTH, normalizeRole, ROLES, USER_STATUS } from '../constants/users';
 import { toISODate } from '../utils/dates';
 import { http } from './apiAxios';
-import { ApiError, fieldError } from './apiError';
+import { ApiError, checkFields, fieldError } from './apiError';
 import { commit, matchesSearch, nextId, requireCurrentUser } from './mock/mockDb';
 import { selectUser } from './mock/mockSelectors';
 import { request } from './request';
@@ -26,23 +26,53 @@ const mapDirectoryEntry = (dto) => ({ id: dto.id, name: dto.name });
 
 // ---- Mock-side validation, shared with profileApi --------------------------------------------
 
-const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+// Something@something.something, with no spaces: like the backend's email:filter rule, it refuses
+// an address with no dot after the @ ("ahmad@medcenter").
+export const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+// The users table columns hold 255 characters (the backend's max:255).
+export const MAX_TEXT_LENGTH = 255;
 
-// Returns the cleaned { name, email }, or throws with a message for the field at fault.
-export const validateUserDetails = (db, { name, email }, exceptUserId = null) => {
-  const cleanName = String(name ?? '').trim();
-  const cleanEmail = String(email ?? '').trim();
-  if (!cleanName) throw fieldError('name', 'Full name is required.');
-  if (!EMAIL_PATTERN.test(cleanEmail)) throw fieldError('email', 'Please enter a valid email address.');
-  const taken = db.users.some((user) => user.id !== exceptUserId && user.email.toLowerCase() === cleanEmail.toLowerCase());
+export const requireName = (value) => {
+  const name = String(value ?? '').trim();
+  if (!name) throw fieldError('name', 'Full name is required.');
+  if (name.length > MAX_TEXT_LENGTH) throw fieldError('name', `Full name may not be longer than ${MAX_TEXT_LENGTH} characters.`);
+  return name;
+};
+
+export const requireEmail = (value) => {
+  const email = String(value ?? '').trim();
+  if (!EMAIL_PATTERN.test(email)) throw fieldError('email', 'Please enter a valid email address.');
+  if (email.length > MAX_TEXT_LENGTH) throw fieldError('email', `The email may not be longer than ${MAX_TEXT_LENGTH} characters.`);
+  return email;
+};
+
+// 409 on "email" when another account already uses the address (any letter case).
+const assertEmailFree = (db, email, exceptUserId = null) => {
+  const taken = db.users.some((user) => user.id !== exceptUserId && user.email.toLowerCase() === email.toLowerCase());
   if (taken) throw fieldError('email', 'Another account already uses this email address.', 409);
-  return { name: cleanName, email: cleanEmail };
+};
+
+// Returns the cleaned { name, email }: both fields are checked (422 lists every wrong one), then
+// the address must be free (409). Shared with profileApi.
+export const validateUserDetails = (db, { name, email }, exceptUserId = null) => {
+  const details = checkFields({ name: () => requireName(name), email: () => requireEmail(email) });
+  assertEmailFree(db, details.email, exceptUserId);
+  return details;
 };
 
 export const requireNewPassword = (value, field = 'password') => {
   const password = String(value ?? '');
   if (password.length < MIN_PASSWORD_LENGTH) throw fieldError(field, `The password must be at least ${MIN_PASSWORD_LENGTH} characters.`);
+  if (password.length > MAX_TEXT_LENGTH) throw fieldError(field, `The password may not be longer than ${MAX_TEXT_LENGTH} characters.`);
   return password;
+};
+
+// The shape of a date only ('YYYY-MM-DD', a real day). Whether it may be used is checkExpiryDate's job.
+const requireDateShape = (value) => {
+  if (value === null || value === '' || value === undefined) return null;
+  const valid = DATE_PATTERN.test(String(value)) && !Number.isNaN(Date.parse(value)) && new Date(`${value}T00:00:00Z`).toISOString().startsWith(value);
+  if (!valid) throw fieldError('accountExpiresOn', 'Please enter a valid date.');
+  return value;
 };
 
 const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
@@ -51,8 +81,7 @@ const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 // `current` is the date the account already has: sending it back unchanged is always allowed,
 // even once it is in the past. Returns the cleaned value.
 const checkExpiryDate = (user, value, current = null) => {
-  if (value === null || value === '' || value === undefined) return null;
-  if (!DATE_PATTERN.test(String(value)) || Number.isNaN(Date.parse(value))) throw fieldError('accountExpiresOn', 'Please enter a valid date.');
+  if (requireDateShape(value) === null) return null;
   if (user.role === ROLES.ADMIN) throw fieldError('accountExpiresOn', 'The admin account cannot expire.');
   if (value !== current && value < toISODate()) throw fieldError('accountExpiresOn', 'The account expiry date cannot be in the past.');
   return value;
@@ -93,16 +122,24 @@ export const createUserApi = async ({ name, email, password, accountExpiresOn = 
     access: ACCESS.ADMIN,
     api: () => http.post('/users', { name, email, password, role: ROLES.STOREKEEPER, accountExpiresOn: accountExpiresOn || null }),
     mock: (db) => {
-      const details = validateUserDetails(db, { name, email });
+      // Every field first (one 422 lists them all, like StoreUserRequest), then the free email (409).
+      const valid = checkFields({
+        name: () => requireName(name),
+        email: () => requireEmail(email),
+        password: () => requireNewPassword(password),
+        accountExpiresOn: () => checkExpiryDate({ role: ROLES.STOREKEEPER }, accountExpiresOn),
+      });
+      assertEmailFree(db, valid.email);
       const user = {
         id: nextId(db.users),
-        ...details,
-        password: requireNewPassword(password),
+        name: valid.name,
+        email: valid.email,
+        password: valid.password,
         role: ROLES.STOREKEEPER,
         status: USER_STATUS.ACTIVE,
         phone: '',
         lastActiveAt: null,
-        accountExpiresOn: checkExpiryDate({ role: ROLES.STOREKEEPER }, accountExpiresOn),
+        accountExpiresOn: valid.accountExpiresOn,
       };
       db.users.push(user);
       commit();
@@ -122,8 +159,18 @@ export const updateUserApi = async (id, { name, email, status, accountExpiresOn 
     api: () => http.put(`/users/${id}`, { name, email, status, ...(sendsDate && { accountExpiresOn: accountExpiresOn || null }) }),
     mock: (db) => {
       const user = findUser(db, id);
-      const details = validateUserDetails(db, { name, email }, id);
-      if (!Object.values(USER_STATUS).includes(status)) throw fieldError('status', 'Please choose a valid account status.');
+      // Like UpdateUserRequest: every field's shape at once (422), then the rules of UserService.
+      const valid = checkFields({
+        name: () => requireName(name),
+        email: () => requireEmail(email),
+        status: () => {
+          if (!Object.values(USER_STATUS).includes(status)) throw fieldError('status', 'Please choose a valid account status.');
+          return status;
+        },
+        accountExpiresOn: () => (sendsDate ? requireDateShape(accountExpiresOn) : undefined),
+      });
+      assertEmailFree(db, valid.email, id);
+      const details = { name: valid.name, email: valid.email };
       if (status !== USER_STATUS.ACTIVE && user.id === requireCurrentUser().id) {
         throw fieldError('status', 'You cannot deactivate the account you are signed in with.', 409);
       }

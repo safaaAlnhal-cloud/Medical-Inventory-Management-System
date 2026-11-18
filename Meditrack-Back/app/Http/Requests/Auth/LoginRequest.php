@@ -20,7 +20,9 @@ class LoginRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'email' => ['required', 'string', 'email', 'max:255'],
+            // email:filter (PHP's own check) also refuses an address with no dot after the @, such as
+            // "a@b", like the frontend's check does. Its message key stays "email.email".
+            'email' => ['required', 'string', 'email:filter', 'max:255'],
             'password' => ['required', 'string', 'max:255'],
             'remember' => ['sometimes', 'boolean'],
         ];

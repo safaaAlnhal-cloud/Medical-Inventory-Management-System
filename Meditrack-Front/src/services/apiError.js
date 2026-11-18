@@ -1,11 +1,13 @@
 // The one error type services throw, for both the mock layer and the real API.
 // `message` is always safe to show to the user.
 export class ApiError extends Error {
-  constructor(message, { status = 0, fieldErrors = null } = {}) {
+  // retryAfter: on a 429, how many seconds to wait before trying again (null otherwise).
+  constructor(message, { status = 0, fieldErrors = null, retryAfter = null } = {}) {
     super(message);
     this.name = 'ApiError';
     this.status = status;
     this.fieldErrors = fieldErrors;
+    this.retryAfter = retryAfter;
   }
 }
 
@@ -32,7 +34,9 @@ export const toApiError = (error) => {
   const message = typeof body?.message === 'string' && body.message.trim()
     ? body.message
     : DEFAULT_MESSAGES[response.status] || (response.status >= 500 ? 'The server ran into a problem. Please try again later.' : 'Something went wrong. Please try again.');
-  return new ApiError(message, { status: response.status, fieldErrors: body?.errors ?? null });
+  // A 429 body carries retryAfter (seconds), because the page cannot read the Retry-After header.
+  const retryAfter = Number(body?.retryAfter) > 0 ? Math.ceil(Number(body.retryAfter)) : null;
+  return new ApiError(message, { status: response.status, fieldErrors: body?.errors ?? null, retryAfter });
 };
 
 // Per-field messages of a failed request ({ [field]: message }), or {} when there are none.
@@ -41,6 +45,26 @@ export const getFieldErrors = (error) => (error instanceof ApiError && error.fie
 
 // A rejected value that belongs to one form field. Used by the mock-side validation.
 export const fieldError = (field, message, status = 422) => new ApiError(message, { status, fieldErrors: { [field]: message } });
+
+// Mock-side: runs every check and reports ALL the fields that fail in one 422, as the backend's
+// Form Requests do, so a form shows a message under each wrong input at once.
+//   checks: { key: () => cleanedValue }   each check returns the clean value or throws a fieldError
+// Returns { key: cleanedValue }. Any error that is not a field error is rethrown as it is.
+export const checkFields = (checks) => {
+  const values = {};
+  const errors = {};
+  for (const [key, check] of Object.entries(checks)) {
+    try {
+      values[key] = check();
+    } catch (err) {
+      if (!(err instanceof ApiError) || !err.fieldErrors || err.status !== 422) throw err;
+      Object.assign(errors, err.fieldErrors);
+    }
+  }
+  const failed = Object.keys(errors);
+  if (failed.length) throw new ApiError(errors[failed[0]], { status: 422, fieldErrors: errors });
+  return values;
+};
 
 export const getErrorMessage = (error, fallback = 'Something went wrong. Please try again.') =>
   error instanceof ApiError && error.message ? error.message : fallback;
