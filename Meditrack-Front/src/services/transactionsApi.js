@@ -405,13 +405,11 @@ const updateMock = (db, id, payload) => {
     const available = receipt.quantity - totalQuantity(issuesFrom(db, batch.id, transaction.id));
     if (quantity > available) throw invalid(`Only ${available} available in batch ${batch.batchNumber}.`, 422, 'quantity');
     if (date < receipt.date) throw invalid(`The date cannot be earlier than ${formatDate(receipt.date)}, when batch ${batch.batchNumber} was received.`, 422, 'date');
-    // An issue recorded before its batch expired stays editable (its recipient or date can be
-    // corrected), but an edit can never take more stock out of a batch that has expired since,
-    // nor move the transaction onto an expired batch.
-    if (getExpiryStatus(batch.expiryDate) === EXPIRY_STATUS.EXPIRED) {
-      const sameBatch = !wasIncoming && batch.id === transaction.batchId;
-      if (!sameBatch) throw invalid(`Batch ${batch.batchNumber} expired on ${formatDate(batch.expiryDate)} and cannot be issued.`, 422, 'batchId');
-      if (quantity > transaction.quantity) throw invalid(`Batch ${batch.batchNumber} expired on ${formatDate(batch.expiryDate)}. No more stock can be issued from it.`, 422, 'quantity');
+    // An edit corrects something that already happened: stock from a batch that has expired
+    // since may be issued as long as the transaction is dated on or before the expiry date (it
+    // left while it was still usable). A new outgoing transaction is still judged by today.
+    if (getExpiryStatus(batch.expiryDate) === EXPIRY_STATUS.EXPIRED && date > batch.expiryDate) {
+      throw invalid(`Batch ${batch.batchNumber} expired on ${formatDate(batch.expiryDate)}. Stock issued from it must be dated on or before that day.`, 422, 'date');
     }
     const recipient = requireText(payload.recipient, 'recipient', 'Recipient is required.');
 

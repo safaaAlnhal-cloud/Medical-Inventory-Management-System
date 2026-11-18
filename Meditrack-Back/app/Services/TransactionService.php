@@ -9,6 +9,7 @@ use App\Exceptions\ConflictException;
 use App\Models\Batch;
 use App\Models\Item;
 use App\Models\Transaction;
+use App\Models\TransactionRevision;
 use App\Models\User;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Collection;
@@ -43,6 +44,7 @@ class TransactionService
         return Transaction::query()
             ->where('type', $type)
             ->with('batch')
+            ->withCount('revisions')
             ->when($filters['itemId'] ?? null, fn (Builder $q, $itemId) => $q->where('item_id', $itemId))
             ->when($filters['from'] ?? null, fn (Builder $q, $from) => $q->whereDate('date', '>=', $from))
             ->when($filters['to'] ?? null, fn (Builder $q, $to) => $q->whereDate('date', '<=', $to))
@@ -234,6 +236,277 @@ class TransactionService
         });
     }
 
+    /**
+     * PUT /transactions/{id}: replaces every editable field of an active transaction.
+     * BACKEND_HANDOFF.md, "Editing transactions" and "Edit history".
+     *
+     * Everything is saved in one database transaction (the transaction, its batch, a manufacturer
+     * the edit creates, the stock of both items and the revision record), or nothing is.
+     *
+     *   stays incoming:        the same batch record follows (item, number, cost, dates...). While
+     *                          stock issued from that batch is active, the item cannot change,
+     *                          the quantity cannot drop below what was issued, and the date
+     *                          cannot move past the first issue.
+     *   outgoing -> incoming:  its quantity returns to the batch it issued from; it receives a
+     *                          new batch.
+     *   stays outgoing:        may move to another batch or item, received before this
+     *                          transaction was recorded, holding enough stock.
+     *   incoming -> outgoing:  its batch leaves stock (refused while stock issued from it is
+     *                          active); it then issues from another batch.
+     *
+     * Unit cost of an outgoing result: its stored snapshot is kept, unless the item changed or it
+     * used to be incoming; then it is the item's Average Cost, as for a new outgoing transaction.
+     * Other transactions are never rewritten.
+     *
+     * Expiry, decided 2026-11-17: an edit corrects something that already happened, so stock from
+     * a batch that has expired since may be issued as long as the transaction is dated on or
+     * before the expiry date (the stock left while it was still usable). A new outgoing
+     * transaction is still judged by today.
+     *
+     * @param  array<string, mixed>  $data  validated by UpdateTransactionRequest
+     *
+     * @throws ConflictException   409: cancelled, a disposal, an archived item, stock issued from its batch...
+     * @throws ValidationException 422 on the field that is wrong
+     */
+    public function update(Transaction $transaction, array $data, User $editor): Transaction
+    {
+        return DB::transaction(function () use ($transaction, $data, $editor) {
+            $items = $this->stock->lockItems($transaction->item_id, $data['itemId']);
+            // Read again under the lock; if another edit moved it to a third item meanwhile, lock that too.
+            $transaction->refresh();
+            if (! $items->has($transaction->item_id)) {
+                $items = $this->stock->lockItems($transaction->item_id, $data['itemId']);
+            }
+            $oldItem = $items->get($transaction->item_id);
+            $item = $items->get($data['itemId']);
+
+            if (! $transaction->isActive()) {
+                throw new ConflictException('A cancelled transaction cannot be edited.');
+            }
+            $this->ensureCanChange($oldItem);
+            if ($transaction->isDisposal()) {
+                throw new ConflictException('An expired stock disposal cannot be edited. If it is wrong, cancel it and record it again.');
+            }
+            $this->ensureItemIsActive($item);
+
+            $before = $this->revisionValues($transaction->load('batch'));
+
+            $data['type'] === TransactionType::Incoming->value
+                ? $this->editAsIncoming($transaction, $item, $data)
+                : $this->editAsOutgoing($transaction, $item, $data);
+
+            if ($oldItem->id !== $item->id) {
+                $this->stock->recalculate($oldItem);
+            }
+            $this->stock->recalculate($item);
+
+            // The new snapshot is the Average Cost after the replay, which no longer counts this
+            // transaction as a receipt (the same moment a new outgoing transaction would take it).
+            if (! $transaction->isIncoming() && ($oldItem->id !== $item->id || $before['type'] === TransactionType::Incoming->value)) {
+                $transaction->forceFill(['unit_cost' => $item->avg_unit_cost])->save();
+            }
+
+            $this->recordRevision($transaction, $before, $editor);
+
+            return $transaction->load('batch');
+        });
+    }
+
+    /** The incoming half of update(): the transaction (re)receives a batch. */
+    private function editAsIncoming(Transaction $transaction, Item $item, array $data): void
+    {
+        $wasIncoming = $transaction->isIncoming();
+        $expiryDate = $data['expiryDate'] ?? null;
+
+        // Checked only when one of the dates changes, or the transaction used to be outgoing:
+        // an old receipt whose batch has expired since must still be correctable.
+        $datesChanged = ! $wasIncoming
+            || $transaction->date->toDateString() !== $data['date']
+            || $transaction->batch->expiry_date?->toDateString() !== $expiryDate;
+        if ($datesChanged && $expiryDate !== null && $expiryDate < $data['date']) {
+            $this->invalid('expiryDate', 'Expiry date cannot be before the transaction date: expired stock cannot be received.');
+        }
+
+        if ($wasIncoming) {
+            $issues = Transaction::active()
+                ->where('type', TransactionType::Outgoing)
+                ->where('batch_id', $transaction->batch_id)
+                ->get();
+            $issued = (int) $issues->sum('quantity');
+            $number = $transaction->batch->batch_number;
+
+            if ($issued > 0) {
+                if ($item->id !== $transaction->item_id) {
+                    throw ConflictException::on('itemId', "The item cannot be changed because {$issued} from batch {$number} has already been issued. Cancel those outgoing transactions first.");
+                }
+                if ($data['quantity'] < $issued) {
+                    throw ConflictException::on('quantity', "The quantity cannot be less than {$issued}, which has already been issued from batch {$number}.");
+                }
+                $firstIssue = $issues->min('date');
+                if ($firstIssue->lessThan($data['date'])) {
+                    $this->invalid('date', "The date cannot be later than {$this->day($firstIssue)}, when stock from batch {$number} was first issued.");
+                }
+            }
+        }
+
+        $manufacturer = filled($data['manufacturer'] ?? null)
+            ? $this->manufacturers->resolve($data['manufacturer'])
+            : null;
+        $this->ensureBatchNumberIsFree($item->id, $manufacturer?->id, $data['batchNumber'], $wasIncoming ? $transaction->batch_id : null);
+
+        $batchFields = [
+            'item_id' => $item->id,
+            'manufacturer_id' => $manufacturer?->id,
+            'batch_number' => $data['batchNumber'],
+            'unit_cost' => $data['unitCost'],
+            'supplier' => $data['supplier'] ?? null,
+            'manufacturing_date' => $data['manufacturingDate'] ?? null,
+            'expiry_date' => $expiryDate,
+        ];
+        // Stays incoming: the same batch, so outgoing transactions keep pointing at it. Used to be
+        // outgoing: a new batch; the one it issued from gets its quantity back in the replay.
+        $batch = $wasIncoming ? tap($transaction->batch)->update($batchFields) : Batch::create($batchFields);
+
+        $transaction->forceFill([
+            'type' => TransactionType::Incoming,
+            'reason' => null,
+            'recipient' => null,
+            'item_id' => $item->id,
+            'batch_id' => $batch->id,
+            'quantity' => $data['quantity'],
+            'unit_cost' => $data['unitCost'],
+            'date' => $data['date'],
+        ])->save();
+    }
+
+    /** The outgoing half of update(): the transaction issues from a batch received before it. */
+    private function editAsOutgoing(Transaction $transaction, Item $item, array $data): void
+    {
+        $wasIncoming = $transaction->isIncoming();
+
+        if ($wasIncoming) {
+            $issued = (int) Transaction::active()
+                ->where('type', TransactionType::Outgoing)
+                ->where('batch_id', $transaction->batch_id)
+                ->sum('quantity');
+            if ($issued > 0) {
+                throw new ConflictException("This transaction cannot be changed to outgoing because {$issued} from batch {$transaction->batch->batch_number}, which it received, has already been issued. Cancel those outgoing transactions first.");
+            }
+        }
+
+        // Its own receipt is left out: a transaction cannot issue from the batch it received.
+        $batch = Batch::where('item_id', $item->id)->find($data['batchId']);
+        $receipt = $batch === null ? null : Transaction::active()
+            ->where('type', TransactionType::Incoming)
+            ->where('batch_id', $batch->id)
+            ->whereKeyNot($transaction->id)
+            ->first();
+        if ($receipt === null) {
+            $this->invalid('batchId', 'The selected batch has no stock for this item.');
+        }
+        if (! $this->recordedBefore($receipt, $transaction)) {
+            $this->invalid('batchId', "Batch {$batch->batch_number} was received after this transaction was recorded, so the transaction cannot issue stock from it.");
+        }
+
+        $issuedByOthers = (int) Transaction::active()
+            ->where('type', TransactionType::Outgoing)
+            ->where('batch_id', $batch->id)
+            ->whereKeyNot($transaction->id)
+            ->sum('quantity');
+        $available = $receipt->quantity - $issuedByOthers;
+        if ($data['quantity'] > $available) {
+            $this->invalid('quantity', "Only {$available} available in batch {$batch->batch_number}.");
+        }
+        if ($receipt->date->greaterThan($data['date'])) {
+            $this->invalid('date', "The date cannot be earlier than {$this->day($receipt->date)}, when batch {$batch->batch_number} was received.");
+        }
+        if ($batch->isExpired() && $batch->expiry_date->lessThan($data['date'])) {
+            $this->invalid('date', "Batch {$batch->batch_number} expired on {$this->day($batch->expiry_date)}. Stock issued from it must be dated on or before that day.");
+        }
+
+        $transaction->forceFill([
+            'type' => TransactionType::Outgoing,
+            'reason' => OutgoingReason::Issue,
+            'recipient' => $data['recipient'],
+            'item_id' => $item->id,
+            'batch_id' => $batch->id,
+            'quantity' => $data['quantity'],
+            'date' => $data['date'],
+            // unit_cost: kept, or set by update() once the stock is replayed.
+        ])->save();
+    }
+
+    /**
+     * What a revision compares, with the request's field names and raw values (ids, ISO dates,
+     * numbers). An incoming transaction is described by its batch's details; an outgoing one by
+     * the batch it issues from and its recipient. The manufacturer is kept as manufacturerId.
+     *
+     * @return array<string, mixed>
+     */
+    private function revisionValues(Transaction $transaction): array
+    {
+        $values = [
+            'type' => $transaction->type->value,
+            'itemId' => $transaction->item_id,
+            'quantity' => $transaction->quantity,
+            'date' => $transaction->date->toDateString(),
+            'unitCost' => (float) $transaction->unit_cost,
+        ];
+
+        if ($transaction->isIncoming()) {
+            $batch = $transaction->batch;
+
+            return [...$values,
+                'batchNumber' => $batch->batch_number,
+                'expiryDate' => $batch->expiry_date?->toDateString(),
+                'supplier' => $batch->supplier,
+                'manufacturerId' => $batch->manufacturer_id,
+                'manufacturingDate' => $batch->manufacturing_date?->toDateString(),
+            ];
+        }
+
+        return [...$values, 'batchId' => $transaction->batch_id, 'recipient' => $transaction->recipient];
+    }
+
+    /** Saves only the fields that changed; an edit that changes nothing leaves no record. */
+    private function recordRevision(Transaction $transaction, array $before, User $editor): void
+    {
+        $after = $this->revisionValues($transaction->load('batch'));
+
+        $old = [];
+        $new = [];
+        // A field one type has and the other has not counts as null on the side that lacks it.
+        foreach (array_keys([...$before, ...$after]) as $field) {
+            $was = $before[$field] ?? null;
+            $is = $after[$field] ?? null;
+            if ($was !== $is) {
+                $old[$field] = $was;
+                $new[$field] = $is;
+            }
+        }
+
+        if ($old === []) {
+            return;
+        }
+
+        $transaction->revisions()->create([
+            'edited_by' => $editor->id,
+            'edited_at' => now(),
+            'old_values' => $old,
+            'new_values' => $new,
+        ]);
+    }
+
+    /**
+     * GET /transactions/{id}/revisions: the edit history, newest first.
+     *
+     * @return Collection<int, TransactionRevision>
+     */
+    public function revisions(Transaction $transaction): Collection
+    {
+        return $transaction->revisions()->orderByDesc('edited_at')->orderByDesc('id')->get();
+    }
+
     /** The transactions of an archived item are read-only: changing one would change its stock. */
     private function ensureCanChange(Item $item): void
     {
@@ -282,16 +555,100 @@ class TransactionService
             return new Collection;
         }
 
+        $batches = Batch::where('item_id', $item->id)
+            ->where('quantity', '>', 0)
+            ->whereHas('receipt')
+            ->get();
+
+        return $this->inOutgoingFormOrder($batches, $manufacturerId);
+    }
+
+    /**
+     * GET /transactions/{transaction}/batch-options?itemId=&manufacturerId=: the batches the
+     * edit form may choose from when this transaction is (or becomes) an outgoing transaction
+     * of $item. Each batch carries option_quantity, what is available TO THIS TRANSACTION:
+     *
+     *   - its own current quantity counts as available again (it is left out of what was issued)
+     *   - the batch it received itself is left out (it cannot issue from its own receipt)
+     *   - batches received after this transaction was recorded are left out: the stock replay
+     *     runs in recorded order, so it could not issue from them
+     *   - an expired batch: what is left in it when the transaction is dated on or before the
+     *     expiry date (the stock left while it was usable), otherwise 0. Expired batches are
+     *     listed last either way, so the form can say why one cannot be chosen. Judged by the
+     *     transaction's stored date: if the edit changes the date, update() checks it again.
+     *
+     * Same order as batchOptions(). An archived item has nothing to issue: [].
+     * The edit itself checks all of this again; this list only spares the form the arithmetic.
+     *
+     * @return Collection<int, Batch>
+     */
+    public function batchOptionsForEdit(Transaction $transaction, Item $item, ?int $manufacturerId): Collection
+    {
+        if ($item->isArchived()) {
+            return new Collection;
+        }
+
+        $others = Transaction::active()->where('item_id', $item->id)->whereKeyNot($transaction->id);
+        $receipts = (clone $others)->where('type', TransactionType::Incoming)->get()->keyBy('batch_id');
+        $issued = (clone $others)->where('type', TransactionType::Outgoing)
+            ->groupBy('batch_id')
+            ->selectRaw('batch_id, SUM(quantity) AS total')
+            ->pluck('total', 'batch_id');
+
+        $batches = Batch::whereKey($receipts->keys())
+            ->get()
+            ->filter(fn (Batch $batch) => $this->recordedBefore($receipts[$batch->id], $transaction));
+
+        $optionQuantities = [];
+        foreach ($batches as $batch) {
+            // What the batch holds once this transaction's own issue is given back.
+            $left = $receipts[$batch->id]->quantity - (int) ($issued[$batch->id] ?? 0);
+            if ($left <= 0) {
+                continue;
+            }
+            // An expired batch can still be chosen when the transaction is dated on or before its
+            // expiry date: the stock left while it was usable (see update()).
+            $usableOnItsDate = ! $batch->isExpired() || $transaction->date->lessThanOrEqualTo($batch->expiry_date);
+            $optionQuantities[$batch->id] = $usableOnItsDate ? $left : 0;
+        }
+
+        $batches = $batches
+            ->filter(fn (Batch $batch) => isset($optionQuantities[$batch->id]))
+            // Not a column and never saved: BatchOptionResource shows it as quantity.
+            ->each(fn (Batch $batch) => $batch->setAttribute('option_quantity', $optionQuantities[$batch->id]));
+
+        return $this->inOutgoingFormOrder($batches, $manufacturerId);
+    }
+
+    /** Whether $a comes before $b in the order stock is replayed in (created_at, then id). */
+    private function recordedBefore(Transaction $a, Transaction $b): bool
+    {
+        return $a->created_at->lessThan($b->created_at)
+            || ($a->created_at->equalTo($b->created_at) && $a->id < $b->id);
+    }
+
+    /**
+     * The order the Outgoing forms list batches in, so they never sort:
+     *
+     *   1. usable batches of $manufacturerId (when given)
+     *   2. the other usable batches
+     *   3. expired batches
+     *
+     * Within each group the nearest expiry comes first (first expiry, first out); batches that
+     * never expire come last.
+     *
+     * @param  Collection<int, Batch>  $batches
+     * @return Collection<int, Batch>
+     */
+    private function inOutgoingFormOrder(Collection $batches, ?int $manufacturerId): Collection
+    {
         $group = fn (Batch $batch) => match (true) {
             $batch->isExpired() => 2,
             $manufacturerId !== null && $batch->manufacturer_id === $manufacturerId => 0,
             default => 1,
         };
 
-        return Batch::where('item_id', $item->id)
-            ->where('quantity', '>', 0)
-            ->whereHas('receipt')
-            ->get()
+        return $batches
             ->sortBy([
                 fn (Batch $a, Batch $b) => $group($a) <=> $group($b),
                 fn (Batch $a, Batch $b) => ($a->expiry_date === null) <=> ($b->expiry_date === null),

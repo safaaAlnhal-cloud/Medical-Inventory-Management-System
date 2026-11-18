@@ -24,6 +24,9 @@ Route::prefix('transactions')->group(function () {
     Route::get('/outgoing', [OutgoingTransactionController::class, 'index']);
     Route::post('/outgoing', [OutgoingTransactionController::class, 'store']);
     Route::post('/disposal', [DisposalTransactionController::class, 'store']);
+    Route::put('/{transaction}', [TransactionController::class, 'update']);
+    Route::get('/{transaction}/batch-options', [TransactionController::class, 'batchOptions']);
+    Route::get('/{transaction}/revisions', [TransactionController::class, 'revisions']);
     Route::patch('/{transaction}/cancel', [TransactionController::class, 'cancel']);
 });
 
