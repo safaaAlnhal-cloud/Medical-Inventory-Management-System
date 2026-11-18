@@ -377,6 +377,10 @@ try {
     const item = await inventory.createInventoryItemApi({ name: 'Barcode Item', categoryId: 2, unit: 'box', minQty: 0 });
     await rejection(inventory.linkBarcodeApi(item.id, { barcode: '625 123', manufacturer: 'PharmaCo' }), 422, 'barcode');
     await rejection(inventory.linkBarcodeApi(item.id, { barcode: '625123', manufacturer: '  ' }), 422, 'manufacturer');
+    // The form has noValidate: both empty fields are reported at once, each under its input.
+    const bothEmpty = await inventory.linkBarcodeApi(item.id, { barcode: '', manufacturer: '' }).catch((err) => err);
+    assert.deepEqual(bothEmpty.fieldErrors, { barcode: 'Enter the barcode.', manufacturer: 'Enter the manufacturer of this barcode.' });
+    await rejection(inventory.linkBarcodeApi(item.id, { barcode: '625123', manufacturer: 'x'.repeat(151) }), 422, 'manufacturer');
 
     const linked = await inventory.linkBarcodeApi(item.id, { barcode: ' 625123 ', manufacturer: 'Brand New Labs' });
     assert.equal(linked.barcodes.length, 1);

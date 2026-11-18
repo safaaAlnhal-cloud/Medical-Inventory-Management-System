@@ -174,7 +174,9 @@ const ItemDetailsModal = ({ item, categoryName, manufacturers, onClose, onDispos
           )}
 
           {!item.archived && (
-            <form onSubmit={handleLinkBarcode} className="grid grid-cols-1 sm:grid-cols-[1fr_1fr_auto] gap-2 items-start">
+            // noValidate: the browser's own bubbles are off, so the messages come from the server
+            // (or the mock), under the field they are about. `required` stays for screen readers.
+            <form noValidate onSubmit={handleLinkBarcode} className="grid grid-cols-1 sm:grid-cols-[1fr_1fr_auto] gap-2 items-start">
               <FormField label="Barcode" error={barcodeErrors.barcode}>
                 <input type="text" required maxLength={64} placeholder="Scan or type the barcode" value={barcodeForm.barcode} onChange={(e) => setBarcodeForm({ ...barcodeForm, barcode: e.target.value })} className={inputClassName} />
               </FormField>
