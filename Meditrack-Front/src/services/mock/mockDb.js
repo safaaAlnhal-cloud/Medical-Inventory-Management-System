@@ -14,7 +14,7 @@ import { seedNotificationState, syncNotifications } from './mockSelectors';
 // sessionStorage, so changes survive a page refresh and reset when the browser tab is closed.
 // Only services may import this module; pages and components never touch it.
 // Bump the version whenever the seed data shape changes, so stale stored copies are dropped.
-const STORAGE_KEY = 'meditrack.mockDb.v9';
+const STORAGE_KEY = 'meditrack.mockDb.v10';
 
 const clone = (value) => JSON.parse(JSON.stringify(value));
 
@@ -26,6 +26,9 @@ const seed = () => {
     items: clone(mockInventoryItems),
     batches: clone(mockBatches),
     transactions: clone(mockTransactions),
+    // Edit history: { id, transactionId, editedBy, editedAt, oldValues, newValues }, one record
+    // per edit that changed something, with only the fields that changed. Never deleted.
+    transactionRevisions: [],
     // Archive history: one record per archiving, completed when the item is restored. Never deleted.
     itemArchivals: [],
     // Factory barcodes: { id, itemId, manufacturerId, barcode }. Unique in the whole system.
@@ -39,7 +42,7 @@ const seed = () => {
 const load = () => {
   try {
     const stored = JSON.parse(sessionStorage.getItem(STORAGE_KEY));
-    return stored?.users && stored?.manufacturers && stored?.items && stored?.batches && stored?.transactions && stored?.itemArchivals && stored?.itemBarcodes ? stored : null;
+    return stored?.users && stored?.manufacturers && stored?.items && stored?.batches && stored?.transactions && stored?.transactionRevisions && stored?.itemArchivals && stored?.itemBarcodes ? stored : null;
   } catch {
     return null;
   }

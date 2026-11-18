@@ -306,8 +306,8 @@ Account expiry fields (**implemented**, decision 23):
     so receiving a new batch at a different price does not change past outgoing transactions.
 - `status` is `"active"` or `"cancelled"`. `cancelledAt` (timestamp) and `cancelledBy` (user id)
   are `null` until the transaction is cancelled. See "Cancelled transactions" below.
-- `revisionsCount` (**implemented** in the backend, **planned** in the frontend) is the number of
-  times the transaction has been edited, `0` if never. The Transactions page shows a History button only when it is above 0.
+- `revisionsCount` (**implemented**: backend, mock and UI) is the number of times the transaction
+  has been edited, `0` if never. The Transactions page shows a History button only when it is above 0.
   See "Edit history" below.
 
 ### Notification
@@ -655,7 +655,7 @@ Until the backend exists, the frontend simulates all of this in `updateMock` in
 
 ### Edit history
 
-**Implemented** (backend), **planned** (frontend). Every successful edit is recorded, so an edited
+**Implemented** (backend, mock and UI). Every successful edit is recorded, so an edited
 transaction never loses what it said before. The record is saved **in the same database
 transaction as the edit**: either both are saved or neither is.
 
@@ -679,9 +679,13 @@ transaction as the edit**: either both are saved or neither is.
 - An edit that changes nothing creates no record.
 - Cancelling is not an edit: it is recorded by `cancelledAt` / `cancelledBy` on the transaction.
 - `GET /transactions/:id/revisions` (section 4.5) returns the records, newest first.
-- **Planned (frontend):** a History button beside the row's actions, shown only when
-  `revisionsCount > 0`, opens a modal listing every edit with who, when, and old → new values.
-  The mock records edits the same way so the button works in mock mode too.
+- **Implemented (UI):** a History button beside the row's actions, shown when
+  `revisionsCount > 0` or the transaction is cancelled (also on deactivated rows: it is
+  read-only), opens a modal listing every edit with who, when, and old → new values, ids resolved
+  to names. A cancelled transaction also shows its cancellation first (Status Active →
+  Cancelled, from `cancelledBy` / `cancelledAt`); the revisions endpoint itself never lists it
+  (`TransactionHistoryModal`, `getTransactionRevisionsApi`). The mock records edits the same way
+  (`recordRevision` in `transactionsApi.js`) so the button works in mock mode too.
 
 ### Stock and expiry rules
 
