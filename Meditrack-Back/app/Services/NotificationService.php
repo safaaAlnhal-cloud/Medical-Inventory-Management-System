@@ -9,8 +9,14 @@ use App\Enums\UserRole;
 use App\Models\Batch;
 use App\Models\Item;
 use App\Models\Notification;
+use App\Models\NotificationRead;
 use App\Models\User;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Eloquent\Collection;
+use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Str;
+use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
 
 /**
  * SHARED CONTRACT. Owner: Developer B (phase 4). Called by Developer A after every stock change.
@@ -27,6 +33,9 @@ class NotificationService
 {
     /** An account alert is raised from this many days before account_expires_on. */
     public const ACCOUNT_WARNING_DAYS = 7;
+
+    /** Cache key: the day syncAll last ran (see syncOncePerDay). */
+    private const SYNCED_ON = 'notifications.synced_on';
 
     /**
      * Brings one item's alerts up to date: low_stock / out_of_stock for the item, and expiring for
@@ -68,8 +77,115 @@ class NotificationService
      */
     public function syncAll(): void
     {
-        Item::query()->orderBy('id')->each(fn (Item $item) => $this->syncItem($item));
+        Item::query()->orderBy('id')->each(fn (Item $item) => DB::transaction(function () use ($item) {
+            // The same row lock StockService takes, so a stock change on this item waits for
+            // this sync (or the other way round) and the two never mix old and new figures.
+            Item::query()->whereKey($item->id)->lockForUpdate()->first();
+            $this->syncItem($item);
+        }));
         User::query()->orderBy('id')->each(fn (User $user) => $this->syncUser($user));
+
+        Cache::forever(self::SYNCED_ON, today()->toDateString());
+    }
+
+    // ---- Reading: the endpoints in routes/api/notifications.php -------------------------------
+
+    /**
+     * The alerts $viewer may see, in priority order (Notification::priority), each with `read`
+     * for $viewer. $search matches the item name, the type as words ("low stock"), the batch
+     * number, and for account alerts the account holder's name and "account".
+     *
+     * @return Collection<int, Notification>
+     */
+    public function feed(User $viewer, ?string $search = null): Collection
+    {
+        $this->syncOncePerDay();
+
+        $search = Str::lower(trim((string) $search));
+
+        return $this->visible($viewer)
+            ->with([
+                'item.batches' => fn ($batches) => $batches->where('quantity', '>', 0),
+                'batch',
+                'user',
+            ])
+            ->get()
+            ->filter(fn (Notification $alert) => $search === '' || $this->matches($alert, $search))
+            ->sortBy(fn (Notification $alert) => $alert->priority())
+            ->values();
+    }
+
+    /** How many of the alerts $viewer may see they have not read yet (the red dot on the bell). */
+    public function unreadCount(User $viewer): int
+    {
+        $this->syncOncePerDay();
+
+        return Notification::query()
+            ->visibleTo($viewer)
+            ->whereDoesntHave('reads', fn (Builder $reads) => $reads->where('user_id', $viewer->id))
+            ->count();
+    }
+
+    /**
+     * Marks one alert as read for $viewer only. 404 when it no longer exists (it was resolved) or
+     * $viewer may not see it.
+     */
+    public function markRead(User $viewer, string $key): Notification
+    {
+        $alert = $this->feed($viewer)->firstWhere('key', $key)
+            ?? throw new NotFoundHttpException('This notification no longer exists.');
+
+        $this->addReads($viewer, [$alert->id]);
+        $alert->setAttribute('read_by_viewer', true);
+
+        return $alert;
+    }
+
+    /** Marks every alert $viewer may see as read, for $viewer only. */
+    public function markAllRead(User $viewer): void
+    {
+        $this->addReads($viewer, $this->visible($viewer)->pluck('id')->all());
+    }
+
+    /** Notification::visibleTo, with `read_by_viewer` (true / false) for $viewer. */
+    private function visible(User $viewer): Builder
+    {
+        return Notification::query()
+            ->visibleTo($viewer)
+            ->withExists(['reads as read_by_viewer' => fn (Builder $reads) => $reads->where('user_id', $viewer->id)]);
+    }
+
+    /** insertOrIgnore: an alert already read (or read by a second click meanwhile) is skipped. */
+    private function addReads(User $viewer, array $notificationIds): void
+    {
+        $rows = array_map(fn (int $id) => ['notification_id' => $id, 'user_id' => $viewer->id, 'read_at' => now()], $notificationIds);
+        if ($rows !== []) {
+            NotificationRead::query()->insertOrIgnore($rows);
+        }
+    }
+
+    private function matches(Notification $alert, string $search): bool
+    {
+        $values = [
+            $alert->item?->name,
+            str_replace('_', ' ', $alert->type->value),
+            $alert->batch?->batch_number,
+            $alert->user?->name,
+        ];
+
+        return collect($values)->contains(fn (?string $value) => $value !== null && str_contains(Str::lower($value), $search));
+    }
+
+    /**
+     * Some alerts change with the date alone. The scheduler runs syncAll every night
+     * (routes/console.php), but on a computer where the scheduler is not running (a demo, a
+     * laptop that was off at midnight) the first read of a new day runs it instead.
+     */
+    private function syncOncePerDay(): void
+    {
+        if (Cache::get(self::SYNCED_ON) !== today()->toDateString()) {
+            $this->syncAll();
+        }
     }
 
     /**
