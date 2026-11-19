@@ -769,7 +769,8 @@ try {
     await transactions.createDisposalTransactionApi({ itemId, batchId: expiredBatchId, quantity: 4, date: today });
     const after = (await dashboard.getStockMovementApi()).find((entry) => entry.month === month);
     assert.equal(after.outgoing, before.outgoing, 'a disposal is not stock issued');
-    assert.equal(after.disposed, before.disposed + 4);
+    // The chart is in money (decided 2026-11-19): 4 boxes x the $6.3333 Average Cost snapshot.
+    assert.equal(after.disposed, Math.round((before.disposed + 4 * 6.3333) * 100) / 100);
   });
 
   check('disposal: reduces the expired quantity and the batch, and is recorded as a disposal', async () => {

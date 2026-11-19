@@ -1245,8 +1245,8 @@ order and applies the same audience rule.
 | Method | Endpoint | Access | Response |
 |---|---|---|---|
 | GET | `/dashboard/summary` | Any signed-in user | `{ "totalItems": 6, "availableCount": 3, "lowStockCount": 2, "outOfStockCount": 1, "expiringSoonCount": 2, "expiredCount": 0 }` |
-| GET | `/dashboard/stock-movement?months=6` | Admin | `[{ "month": "2026-05", "incoming": 180, "outgoing": 70, "disposed": 0 }]`, oldest month first, one entry per month even when zero |
-| GET | `/dashboard/critical-inventory?search=` | Storekeeper | `[{ "id": "low_stock-2", "itemId": 2, "categoryId": 1, "quantity": 15, "status": "low_stock" }]` |
+| GET | `/dashboard/stock-movement?months=6` | Admin | `[{ "month": "2026-05", "incoming": 1240.5, "outgoing": 610, "disposed": 0 }]` (money), oldest month first, one entry per month even when zero |
+| GET | `/dashboard/critical-inventory?search=` | Any signed-in user (not used by the UI, not built) | `[{ "id": "low_stock-2", "itemId": 2, "categoryId": 1, "quantity": 15, "status": "low_stock" }]` |
 | GET | `/dashboard/alerts?search=&limit=3` | Any signed-in user | The first `limit` (1–50, default 3) alerts of `GET /notifications`, in the priority order of section 4.6 (expired, out of stock, expiring soon, low stock, accounts). Both dashboards show the first 5 |
 | GET | `/dashboard/recent-transactions?search=&limit=5` | Any signed-in user | Active `Transaction[]` of both types, newest first |
 
@@ -1259,11 +1259,17 @@ order and applies the same audience rule.
 - In stock movement, `outgoing` counts stock **issued** only; expired stock disposals are returned
   apart as `disposed` (as in the reports, a disposal is not consumption). The chart draws incoming
   and outgoing; `disposed` is named in its tooltips.
-- `incoming` / `outgoing` in stock movement are total quantities for the calendar month (by
-  transaction `date`), over the last `months` calendar months including the current one. The
-  frontend scales the bars. **Known limitation:** the quantities of all items are added together
-  whatever their unit, so the chart shows relative activity, not a stock figure. It includes the
-  history of archived items.
+- **Decided 2026-11-19, implemented:** `incoming` / `outgoing` / `disposed` in stock movement are
+  **values in money**, not quantities (quantities of different units, boxes and bottles, cannot be
+  added together). Each transaction counts `quantity * unitCost` with the `unitCost` stored on it
+  (incoming: the purchase price; outgoing: the Average Cost snapshot), the same value as the
+  `movement_history` report's `totalValue`; rounded to 2 decimals once per month. By calendar
+  month of the transaction `date`, over the last `months` calendar months including the current
+  one (`months` 1–24, default 6, `422` otherwise). Cancelled transactions are excluded; archived
+  items' history is included. The frontend scales the bars and labels the axis in money.
+- **Implemented** (backend): `summary`, `stock-movement` (admin only, `403` otherwise) and
+  `recent-transactions` (`limit` 1–50, default 5). `critical-inventory` is no longer read by
+  either dashboard (both show `/dashboard/alerts`); it is not built.
 - Each dashboard section is loaded by its own request. If one fails, the others are still shown
   and a banner names what could not be loaded.
 - **Implemented:** the admin dashboard also reads two totals from the reports endpoint (section
