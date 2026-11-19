@@ -1017,6 +1017,17 @@ try {
     assert.deepEqual(await accountAlerts(), [], 'an account that never expires raises none');
   });
 
+  check('export: the file name matches the backend, and in mock mode the server-built files are refused', async () => {
+    assert.equal(reports.exportFilename('movement_history', 'xlsx', new Date(2026, 10, 9)), 'meditrack-movement_history-2026-11-09.xlsx');
+    assert.deepEqual(reports.EXPORT_FORMATS, ['pdf', 'xlsx', 'csv']);
+
+    await signIn(ADMIN);
+    const refused = await rejection(reports.exportReportApi('summary', 'csv', sixMonths), 501);
+    assert.match(refused.message, /need the server/);
+    await signIn(STOREKEEPER);
+    await rejection(reports.exportReportApi('summary', 'csv', sixMonths), 403);
+  });
+
   for (const { name, run } of checks) {
     await reset();
     try {

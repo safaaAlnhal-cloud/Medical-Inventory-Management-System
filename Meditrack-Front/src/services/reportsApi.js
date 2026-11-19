@@ -1,8 +1,9 @@
 import { OUTGOING_REASON_LABELS, OUTGOING_REASONS, TRANSACTION_TYPES } from '../constants/inventory';
 import { ACCESS } from '../constants/users';
+import { toISODate } from '../utils/dates';
 import { EXPIRY_STATUS, STOCK_STATUS } from '../utils/stock';
-import { http } from './apiAxios';
-import { ApiError } from './apiError';
+import apiAxios, { http, notifyUnauthorized } from './apiAxios';
+import { ApiError, toApiError } from './apiError';
 import { matchesSearch } from './mock/mockDb';
 import { isDisposal, round2, selectActiveTransactions, selectCriticalInventory, selectInventory, selectNameMaps, selectTransactionValue, sumTransactionValues } from './mock/mockSelectors';
 import { request } from './request';
@@ -176,3 +177,53 @@ export const getReportApi = async (type, { from, to, categoryId, itemId, search 
   });
   return mapReport(dto);
 };
+
+// ---- Export ----------------------------------------------------------------------------
+
+export const EXPORT_FORMATS = ['pdf', 'xlsx', 'csv'];
+
+// A large PDF takes longer to build than the usual request timeout allows.
+const EXPORT_TIMEOUT_MS = 120000;
+
+// The same name the backend gives the file. The page cannot read the server's
+// Content-Disposition header (CORS does not expose it), so it is built here.
+export const exportFilename = (type, format, now = new Date()) => `meditrack-${type}-${toISODate(now)}.${format}`;
+
+// An error response to a blob request arrives as a Blob too: read it as the usual JSON
+// error body ({ message, errors }) so the user sees the backend's own message.
+const toExportError = async (response) => {
+  let body = null;
+  try {
+    body = JSON.parse(await response.data.text());
+  } catch {
+    // Not JSON (an HTML error page, an empty body): the status's default message is shown.
+  }
+  return toApiError({ response: { status: response.status, data: body } });
+};
+
+// Downloads every row of a report as a file built by the backend:
+// GET /reports/:type/export?format=pdf|xlsx|csv, with the report's filters and no page.
+// Returns { blob, filename }. Real API only: in mock mode the page prints the PDF itself, and
+// Excel / CSV need the server.
+export const exportReportApi = async (type, format, { from, to, categoryId, itemId, search = '' } = {}) => request({
+  delay: 100,
+  access: ACCESS.ADMIN,
+  api: async () => {
+    const response = await apiAxios.get(`/reports/${type}/export`, {
+      params: { format, from, to, categoryId, itemId, search: search || undefined },
+      responseType: 'blob',
+      timeout: EXPORT_TIMEOUT_MS,
+      // Every answer resolves here, so an error's Blob body can be read before it is reported.
+      // (A request that never got an answer, offline or timed out, is still rejected as usual.)
+      validateStatus: () => true,
+    });
+    if (response.status >= 200 && response.status < 300) return { blob: response.data, filename: exportFilename(type, format) };
+
+    const error = await toExportError(response);
+    if (error.status === 401) notifyUnauthorized();
+    throw error;
+  },
+  mock: () => {
+    throw new ApiError('Excel and CSV exports need the server. In demo mode, use Export PDF.', { status: 501 });
+  },
+});

@@ -6,11 +6,12 @@ import { EXPIRY_STATUS, STATUS_LABELS, STOCK_STATUS } from '../../utils/stock';
 // Everything presentational about the reports lives here: tab labels, card titles, chart
 // segments, column headings and cell text. The reports service only returns raw values.
 
+// Every report can be exported (PDF, Excel, CSV): BACKEND_HANDOFF.md 4.8, "Export".
 export const REPORT_TABS = [
-  { id: 'summary', label: 'Inventory Summary', icon: CheckCircle2, allowPdf: true },
-  { id: 'movement_history', label: 'Movement History', icon: ArrowLeftRight, allowPdf: true },
-  { id: 'critical_items', label: 'Critical Items', icon: AlertTriangle, allowPdf: false },
-  { id: 'inventory_value', label: 'Inventory Value', icon: DollarSign, allowPdf: true },
+  { id: 'summary', label: 'Inventory Summary', icon: CheckCircle2 },
+  { id: 'movement_history', label: 'Movement History', icon: ArrowLeftRight },
+  { id: 'critical_items', label: 'Critical Items', icon: AlertTriangle },
+  { id: 'inventory_value', label: 'Inventory Value', icon: DollarSign },
 ];
 
 const count = (key) => (totals) => formatNumber(totals[key]);

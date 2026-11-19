@@ -1,13 +1,15 @@
 import React, { useCallback, useState } from 'react';
-import { FileText, Calendar, Tag, Package, X, ChevronLeft, ChevronRight, Play } from 'lucide-react';
+import { FileText, FileSpreadsheet, Calendar, Tag, Package, X, ChevronLeft, ChevronRight, Play } from 'lucide-react';
 import { ErrorState, TableState } from '../../components/common/DataState';
 import PageHeader from '../../components/common/PageHeader';
 import { useToast } from '../../context/ToastContext';
 import { useAsyncData } from '../../hooks/useAsyncData';
 import { useLookups } from '../../hooks/useLookups';
 import { useSearchQuery } from '../../hooks/useSearchQuery';
+import { USE_MOCK_DATA } from '../../services/apiAxios';
 import { getErrorMessage } from '../../services/apiError';
-import { getReportApi } from '../../services/reportsApi';
+import { exportReportApi, getReportApi } from '../../services/reportsApi';
+import { downloadFile } from '../../utils/downloadFile';
 import { formatDate, getInitial } from '../../utils/formatters';
 import { resolveId } from '../../utils/ids';
 import { printReport } from '../../utils/printReport';
@@ -15,7 +17,17 @@ import { buildDonutGradient, DATE_RANGES, DEFAULT_DATE_RANGE, getPageWindow, res
 import { REPORT_TABS, REPORT_VIEWS } from './reportConfig';
 
 const PAGE_SIZE = 5;
+// Mock mode only: the print-dialog PDF asks for one page of at most this many rows.
 const EXPORT_PAGE_SIZE = 1000;
+// The export buttons. With the real API the backend builds all three files, with every row. In
+// mock mode there is no server to build them: PDF falls back to the print dialog, and Excel /
+// CSV are disabled with a note saying why (BACKEND_HANDOFF.md 4.8, "Export").
+const EXPORT_BUTTONS = [
+  { format: 'pdf', label: 'PDF', icon: FileText },
+  { format: 'xlsx', label: 'Excel', icon: FileSpreadsheet },
+  { format: 'csv', label: 'CSV', icon: FileSpreadsheet },
+];
+const SERVER_ONLY_NOTE = 'Excel and CSV exports need the server. They are not available in demo mode.';
 const DEFAULT_FILTERS = { dateRange: DEFAULT_DATE_RANGE, categoryId: 'all', itemId: 'all' };
 const EMPTY_REPORT = { totals: {}, breakdown: [], rows: [], pagination: { page: 1, pageSize: PAGE_SIZE, totalItems: 0, totalPages: 1 } };
 // Same three colours, in the same order, as the donut segments (DONUT_COLORS in utils/reports.js).
@@ -26,13 +38,14 @@ const sameFilters = (a, b) => a.dateRange === b.dateRange && a.categoryId === b.
 const ReportsPage = () => {
   const search = useSearchQuery();
   const lookups = useLookups();
-  const { showError } = useToast();
+  const { showError, showSuccess } = useToast();
 
   const [activeTab, setActiveTab] = useState(REPORT_TABS[0].id);
   // `draftFilters` is what the selects show; `filters` is what the report was generated with.
   const [draftFilters, setDraftFilters] = useState(DEFAULT_FILTERS);
   const [filters, setFilters] = useState(DEFAULT_FILTERS);
-  const [exporting, setExporting] = useState(false);
+  // The format being exported ('pdf', 'xlsx', 'csv'), or null. One export at a time.
+  const [exporting, setExporting] = useState(null);
 
   // The page number belongs to one tab + filters + search combination and resets when it changes.
   const scope = `${activeTab}|${search}|${filters.dateRange}|${filters.categoryId}|${filters.itemId}`;
@@ -78,9 +91,9 @@ const ReportsPage = () => {
     ...(search ? [`Search: ${search}`] : []),
   ];
 
-  // Exports every row of the current report (not just the visible page) through the print dialog.
-  const handleExportPDF = async () => {
-    setExporting(true);
+  // Mock mode only: prints every row of the current report (not just the visible page) through
+  // the browser's print dialog, where "Save as PDF" makes the file.
+  const printMockReport = async () => {
     try {
       const fullReport = await getReportApi(activeTab, buildQuery({ page: 1, pageSize: EXPORT_PAGE_SIZE }));
       // One request holds at most EXPORT_PAGE_SIZE rows. If the report is longer, the export
@@ -100,8 +113,25 @@ const ReportsPage = () => {
       });
     } catch (err) {
       showError(getErrorMessage(err, 'Could not export the report. Please try again.'));
+    }
+  };
+
+  // The report with the filters it was generated with (the selects' unapplied changes are not
+  // part of it) and the current search, every row, as a file from the backend.
+  const handleExport = async (format) => {
+    setExporting(format);
+    try {
+      if (USE_MOCK_DATA) {
+        await printMockReport();
+      } else {
+        const { blob, filename } = await exportReportApi(activeTab, format, buildQuery({}));
+        downloadFile(blob, filename);
+        showSuccess(`${tab.label} exported as ${filename}.`);
+      }
+    } catch (err) {
+      showError(getErrorMessage(err, 'Could not export the report. Please try again.'));
     } finally {
-      setExporting(false);
+      setExporting(null);
     }
   };
 
@@ -110,10 +140,27 @@ const ReportsPage = () => {
       <PageHeader
         title="Reports"
         subtitle="Monitor medical inventory performance, movements, and stock valuations."
-        actions={tab.allowPdf && (
-          <button type="button" onClick={handleExportPDF} disabled={exporting} className="px-4 py-2.5 bg-[#115e54] hover:bg-[#0e4f47] text-white text-xs font-bold rounded-xl shadow-sm flex items-center justify-center gap-2 transition cursor-pointer disabled:opacity-50">
-            <FileText className="w-4 h-4" /> {exporting ? 'Preparing...' : 'Export PDF Report'}
-          </button>
+        actions={(
+          <div className="flex flex-col items-start sm:items-end gap-1.5">
+            <div className="flex flex-wrap items-center gap-2" role="group" aria-label={`Export ${tab.label}`}>
+              {EXPORT_BUTTONS.map(({ format, label, icon: Icon }) => {
+                const serverOnly = USE_MOCK_DATA && format !== 'pdf';
+                return (
+                  <button
+                    type="button"
+                    key={format}
+                    onClick={() => handleExport(format)}
+                    disabled={exporting !== null || serverOnly}
+                    title={serverOnly ? SERVER_ONLY_NOTE : `Export ${tab.label} as ${label}`}
+                    className="px-4 py-2.5 bg-[#115e54] hover:bg-[#0e4f47] text-white text-xs font-bold rounded-xl shadow-sm flex items-center justify-center gap-2 transition cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-[#115e54]"
+                  >
+                    <Icon className="w-4 h-4" /> {exporting === format ? 'Preparing...' : `Export ${label}`}
+                  </button>
+                );
+              })}
+            </div>
+            {USE_MOCK_DATA && <p className="text-[11px] font-semibold text-slate-400">{SERVER_ONLY_NOTE}</p>}
+          </div>
         )}
       />
 

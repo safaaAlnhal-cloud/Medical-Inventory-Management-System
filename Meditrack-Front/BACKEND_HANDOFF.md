@@ -1293,8 +1293,8 @@ page for storekeepers is **planned**, see section 2). Money values are not hidde
 storekeepers: they already see unit costs on the Inventory and Transactions pages.
 
 `:type` is `summary`, `movement_history`, `critical_items` or `inventory_value`. An unknown type is `404`.
-The frontend requests `pageSize=5` for the table and, today, `pageSize=1000` when exporting
-(**planned:** exports use the export endpoint below instead).
+The frontend requests `pageSize=5` for the table. Exports use the export endpoint below (every
+row, no page); only the mock mode's print-dialog PDF still asks for `pageSize=1000`.
 
 What each filter applies to:
 
@@ -1352,11 +1352,7 @@ Response (same envelope for every type):
 - The Inventory Value donut compares `incomingValue` with `outgoingValue`. Its legend shows the two
   labels only; the amounts are in the cards beside it.
 
-**Today (implemented):** Export PDF and Generate Report are handled in the browser through the
-print dialog. The export asks for one page of 1000 rows; if the report has more, only the first
-1000 are exported, and the page and the export's header say so.
-
-#### Export (decided, decision 25; planned)
+#### Export (decided, decision 25; implemented)
 
 All exports are produced **by the backend**, in three formats, with **no row limit**:
 
@@ -1375,11 +1371,26 @@ All exports are produced **by the backend**, in three formats, with **no row lim
 - The file is written completely first. **Only after it was produced successfully** is the export
   recorded in the export log (below) and the file sent. A failed export records nothing and
   returns an error in the usual format.
-- `422` for an unknown `format`. **Decided:** all four reports can be exported, Critical Items
-  included (today it has no export button).
-- **Mock mode (decided, planned):** a browser cannot run the backend's file generation, so in mock
-  mode the page keeps today's print-dialog PDF, and the Excel and CSV buttons are disabled with a
-  note that they need the server.
+- `422` for a missing or unknown `format`, for a bad date, an end date before the start date, or
+  a category / item that does not exist. `404` for an unknown `:type`. In every case nothing is
+  built and nothing is logged.
+- All four reports can be exported, Critical Items included: the Reports page has an Export PDF,
+  Export Excel and Export CSV button on every tab. The file holds the filters the report was
+  **generated** with (not unapplied changes in the selects) and the current search.
+- **Files:** PDF with dompdf (A4 landscape, the heading row repeated on every page, "Page x of y"),
+  Excel with OpenSpout (one sheet, numbers kept as numbers, money formatted `$#,##0.00`), CSV
+  with a UTF-8 mark so Excel opens it correctly. Names are `meditrack-{type}-{YYYY-MM-DD}.{format}`.
+  Text that starts with `=`, `+`, `-` or `@` can never run as a formula: the CSV prefixes it with
+  `'`, and Excel always gets it as a text cell.
+- **How the page downloads it:** `exportReportApi` (`services/reportsApi.js`) asks for the file as
+  a blob, with a 2-minute timeout, and saves it with `utils/downloadFile.js`. CORS does not expose
+  `Content-Disposition`, so the page builds the same file name itself (`exportFilename`). An
+  error answer also arrives as a blob: the service reads it as the usual JSON error body, so the
+  backend's own message is shown (a 401 still signs the user out).
+- **Mock mode (decided, implemented):** a browser cannot run the backend's file generation, so in
+  mock mode Export PDF opens the print dialog (one page of at most 1000 rows; if the report has
+  more, the page and the printout say so), and Export Excel / Export CSV are disabled with a note
+  that they need the server.
 - **Decided:** item names are in English only, so the PDF is built with a library without Arabic
   text shaping (dompdf). Arabic names would need a different library (mPDF).
 - **Known limitation:** a very large PDF takes noticeably longer than the same Excel or CSV file.
@@ -1505,7 +1516,7 @@ be sent without the UI.
 10. **Barcodes and manufacturers (planned).** Keep every barcode unique system-wide, block barcode
     changes on archived items, never create a duplicate manufacturer by spelling, and keep batch
     numbers unique per item and manufacturer.
-11. **Exports (planned).** Build every export file on the server, with the report information,
+11. **Exports (implemented).** Build every export file on the server, with the report information,
     and log it only after it was produced.
 
 ## 8. Known limitations and open decisions
@@ -1516,8 +1527,8 @@ be sent without the UI.
   layer's rules only.
 - The real API mode has never run against a server: every `api` branch is written to this
   contract but untested.
-- Lists other than reports are not paginated (section 5). The PDF export holds at most 1000 rows
-  (section 4.8) until the planned backend export replaces it.
+- Lists other than reports are not paginated (section 5). In mock mode only, the print-dialog
+  PDF holds at most 1000 rows (section 4.8); the backend export has no limit.
 - Each page that shows names loads the three lookup lists when it opens; they are not shared
   between pages.
 - The dashboard stock movement chart adds quantities of different units (section 4.7).
@@ -1541,7 +1552,7 @@ planned.
 | 7 | Which time zone defines "today" | Decided | `Asia/Gaza`, on the server. The mock uses the browser's local date |
 | 8 | Token lifetime, refresh and storage | Decided | Sanctum token, 24 hours or 30 days with "Remember me"; no refresh; web storage |
 | 9 | Pagination for inventory, transactions, users, notifications; lookups versus embedded names | Decided | Not paginated for now (reports are); the three lookup endpoints stay |
-| 10 | Report export beyond 1000 rows | Decided | No limit: exports are built by the backend (decision 25). Until then, truncated and labelled |
+| 10 | Report export beyond 1000 rows | Decided | No limit: exports are built by the backend (decision 25). Only the mock mode's printed PDF is truncated, and labelled |
 | 11 | Can more admins be created, roles changed, users deleted? | Decided | One admin from the seeder; only storekeepers are created; no role changes; users are deactivated, never deleted |
 | 12 | May a storekeeper edit their own name / email / phone? | Open | Endpoint allows it; UI does not offer it. Changing one's own email is deferred (decision 27) |
 | 13 | Self-service password reset by email | Open | Not available; an admin sets a new password |
