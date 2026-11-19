@@ -7,11 +7,12 @@ use App\Enums\ReportType;
 use App\Exports\ExportedFile;
 use App\Exports\ReportDocumentBuilder;
 use App\Exports\Writers\CsvWriter;
+use App\Exports\Writers\PdfWriter;
 use App\Exports\Writers\ReportWriter;
+use App\Exports\Writers\XlsxWriter;
 use App\Models\ReportExport;
 use App\Models\User;
 use App\Reports\ReportFilters;
-use Symfony\Component\HttpKernel\Exception\HttpException;
 
 /**
  * GET /reports/{type}/export: BACKEND_HANDOFF.md 4.8, "Export". Owner: Developer B (phase 5).
@@ -58,9 +59,9 @@ class ReportExportService
     private function writer(ExportFormat $format): ReportWriter
     {
         return match ($format) {
+            ExportFormat::Pdf => new PdfWriter,
+            ExportFormat::Xlsx => new XlsxWriter,
             ExportFormat::Csv => new CsvWriter,
-            // Phase 5, step 2: PDF (dompdf) and Excel (PhpSpreadsheet).
-            default => throw new HttpException(501, strtoupper($format->value).' export is not available yet.'),
         };
     }
 }
