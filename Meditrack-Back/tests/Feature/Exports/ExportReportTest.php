@@ -251,6 +251,19 @@ class ExportReportTest extends TestCase
         $this->assertSame(0, ReportExport::count());
     }
 
+    public function test_the_frontend_gets_its_errors_as_json(): void
+    {
+        // The frontend asks for the file as a blob with axios's own Accept header. An error must
+        // still come back as the usual JSON body (never a redirect), so the page can read it.
+        $this->mock(ReportService::class)->shouldNotReceive('build');
+        $axios = ['Accept' => 'application/json, text/plain, */*'];
+
+        $this->actingAsAdmin($this->sara)->get('/api/reports/summary/export?format=docx', $axios)
+            ->assertUnprocessable()->assertJsonPath('message', 'Choose a file format: pdf, xlsx or csv.');
+        $this->actingAsAdmin($this->sara)->get('/api/reports/stock_levels/export?format=csv', $axios)
+            ->assertNotFound()->assertHeader('Content-Type', 'application/json');
+    }
+
     public function test_a_signed_in_user_is_required(): void
     {
         $this->getJson('/api/reports/summary/export?format=csv')->assertUnauthorized();
