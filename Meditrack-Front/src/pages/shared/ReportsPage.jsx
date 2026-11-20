@@ -19,15 +19,16 @@ import { REPORT_TABS, REPORT_VIEWS } from './reportConfig';
 const PAGE_SIZE = 5;
 // Mock mode only: the print-dialog PDF asks for one page of at most this many rows.
 const EXPORT_PAGE_SIZE = 1000;
-// The export buttons. With the real API the backend builds all three files, with every row. In
-// mock mode there is no server to build them: PDF falls back to the print dialog, and Excel /
-// CSV are disabled with a note saying why (BACKEND_HANDOFF.md 4.8, "Export").
+// The export buttons. With the real API the backend builds the file, with every row. In mock
+// mode there is no server to build it: PDF falls back to the print dialog, and Excel is disabled
+// with a note saying why (BACKEND_HANDOFF.md 4.8, "Export").
+// CSV is hidden (decided): the backend still builds it, so bringing it back is one line here:
+//   { format: 'csv', label: 'CSV', icon: FileSpreadsheet },
 const EXPORT_BUTTONS = [
   { format: 'pdf', label: 'PDF', icon: FileText },
   { format: 'xlsx', label: 'Excel', icon: FileSpreadsheet },
-  { format: 'csv', label: 'CSV', icon: FileSpreadsheet },
 ];
-const SERVER_ONLY_NOTE = 'Excel and CSV exports need the server. They are not available in demo mode.';
+const SERVER_ONLY_NOTE = 'Excel exports need the server. They are not available in demo mode.';
 const DEFAULT_FILTERS = { dateRange: DEFAULT_DATE_RANGE, categoryId: 'all', itemId: 'all' };
 const EMPTY_REPORT = { totals: {}, breakdown: [], rows: [], pagination: { page: 1, pageSize: PAGE_SIZE, totalItems: 0, totalPages: 1 } };
 
@@ -42,7 +43,7 @@ const ReportsPage = () => {
   // `draftFilters` is what the selects show; `filters` is what the report was generated with.
   const [draftFilters, setDraftFilters] = useState(DEFAULT_FILTERS);
   const [filters, setFilters] = useState(DEFAULT_FILTERS);
-  // The format being exported ('pdf', 'xlsx', 'csv'), or null. One export at a time.
+  // The format being exported ('pdf', 'xlsx'), or null. One export at a time.
   const [exporting, setExporting] = useState(null);
 
   // The page number belongs to one tab + filters + search combination and resets when it changes.
