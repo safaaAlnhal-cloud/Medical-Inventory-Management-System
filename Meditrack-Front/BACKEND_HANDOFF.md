@@ -1303,7 +1303,7 @@ storekeepers: they already see unit costs on the Inventory and Transactions page
 same filters as the export, `page` 1 or more (a page past the end returns the last page),
 `pageSize` 1–1000 (default 10). `critical_items` rows also carry `expiryDate` (the nearest expiry
 of the batches behind an expiry row; `null` on a stock row). `movement_history` and
-`inventory_value`: phase 5, step 3.
+`inventory_value` are implemented too (see below).
 The frontend requests `pageSize=5` for the table. Exports use the export endpoint below (every
 row, no page); only the mock mode's print-dialog PDF still asks for `pageSize=1000`.
 
@@ -1352,16 +1352,24 @@ Response (same envelope for every type):
   awaiting disposal; the expiring-soon row's is the stock in the batches about to expire.
 
 
-- `breakdown` is returned by `inventory_value` only: `[{ "categoryId": 1, "value": 6381.25 }]`, highest value first. Other types return `[]`.
-  The Reports page no longer charts it: the Inventory Value chart compares `incomingValue` with `outgoingValue`.
+- `breakdown` is returned by `inventory_value` only: `[{ "categoryId": 1, "value": 6381.25 }]`
+  (the `stockValue` of each category, highest value first; categories with no stock value are
+  left out). Other types return `[]`. **Implemented** (backend, mock and UI): the Inventory Value
+  donut charts it (decided 2026-11-20): one segment per category, the fifth and later added up as
+  "Other", the total `stockValue` in the centre.
 - `critical_items` rows follow the same one-row-per-problem rule as `/dashboard/critical-inventory`;
   `totalItems` is the number of distinct items and `alerts` the number of rows.
 - `movement_history` `totalValue` is `quantity * unitCost` for both types, using the `unitCost` stored on the transaction
   (incoming: the purchase price; outgoing: the Average Cost snapshot). `null` only when that cannot be calculated.
 - `incomingValue` / `outgoingValue` are the sums of that same `quantity * unitCost` over the incoming / outgoing
   transactions in the `from`-`to` range (cancelled ones excluded, archived items' ones included).
-- The Inventory Value donut compares `incomingValue` with `outgoingValue`. Its legend shows the two
-  labels only; the amounts are in the cards beside it.
+- `incomingValue` and `outgoingValue` are shown under the Inventory Value donut, apart, headed
+  "In the selected period": they are the only figures of that report that follow the Period
+  (the donut and the table are today's inventory).
+- **Implemented** (backend): `movement_history` and `inventory_value`, so all four reports, and
+  the export of each, now run on the real data. Every money value is `quantity * unitCost`
+  rounded to cents **per transaction**, then added up, so each total is exactly the sum of the
+  `totalValue` cells (`ReportService::value`; the dashboard stock movement uses the same).
 
 #### Export (decided, decision 25; implemented)
 

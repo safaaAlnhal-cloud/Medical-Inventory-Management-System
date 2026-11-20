@@ -17,7 +17,10 @@ export const resolveDateRange = (value, now = new Date()) => {
 };
 
 // Three lightness levels of the brand green #16423c (same hue), darkest first.
-const DONUT_COLORS = ['#16423c', '#409689', '#9bd4cd'];
+export const DONUT_COLORS = ['#16423c', '#409689', '#9bd4cd'];
+// Five levels of the same green, darkest first, for a donut of up to five segments (the
+// Inventory Value report: its top four categories and "Other").
+export const DONUT_COLORS_FIVE = ['#16423c', '#2b6b61', '#409689', '#6db7ac', '#b5e0da'];
 const DONUT_EMPTY_COLOR = '#e2f3f1';
 
 // Builds the CSS conic-gradient for a donut chart from raw segment values.
