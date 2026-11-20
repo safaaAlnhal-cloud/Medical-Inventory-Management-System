@@ -1299,6 +1299,11 @@ page for storekeepers is **planned**, see section 2). Money values are not hidde
 storekeepers: they already see unit costs on the Inventory and Transactions pages.
 
 `:type` is `summary`, `movement_history`, `critical_items` or `inventory_value`. An unknown type is `404`.
+**Implemented** (backend): `summary` and `critical_items` (`ReportService::build`); `422` on the
+same filters as the export, `page` 1 or more (a page past the end returns the last page),
+`pageSize` 1–1000 (default 10). `critical_items` rows also carry `expiryDate` (the nearest expiry
+of the batches behind an expiry row; `null` on a stock row). `movement_history` and
+`inventory_value`: phase 5, step 3.
 The frontend requests `pageSize=5` for the table. Exports use the export endpoint below (every
 row, no page); only the mock mode's print-dialog PDF still asks for `pageSize=1000`.
 

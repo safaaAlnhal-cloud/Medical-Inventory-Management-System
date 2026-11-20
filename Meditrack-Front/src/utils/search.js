@@ -1,7 +1,8 @@
 // Navbar search settings per page. The query itself lives in the URL as ?q= and each list page
 // passes it to its service. Pages with nothing to search have the input disabled.
 const SEARCH_CONFIGS = [
-  { segment: 'dashboard', placeholder: 'Search dashboard...', enabled: true },
+  // On the dashboards the query filters only the Important Alerts and Recent Transactions panels.
+  { segment: 'dashboard', placeholder: 'Search alerts and recent transactions...', enabled: true },
   { segment: 'inventory', placeholder: 'Search inventory...', enabled: true },
   { segment: 'transactions', placeholder: 'Search transactions...', enabled: true },
   { segment: 'users', placeholder: 'Search users...', enabled: true },
