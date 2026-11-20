@@ -136,12 +136,11 @@ Route and role structure (**implemented**, `src/routes`):
 | `/` | Public | Landing page |
 | `/login` | Public (a signed-in user is sent to their dashboard) | Login |
 | `/admin/dashboard`, `/admin/inventory`, `/admin/transactions`, `/admin/users`, `/admin/reports`, `/admin/notifications`, `/admin/settings` | Admin | |
-| `/storekeeper/dashboard`, `/storekeeper/inventory`, `/storekeeper/transactions`, `/storekeeper/notifications`, `/storekeeper/profile` | Storekeeper | |
-| `/storekeeper/reports` | Storekeeper | **Planned:** the same Reports page, with all four reports, linked from the storekeeper sidebar |
+| `/storekeeper/dashboard`, `/storekeeper/inventory`, `/storekeeper/transactions`, `/storekeeper/reports`, `/storekeeper/notifications`, `/storekeeper/profile` | Storekeeper | |
 
 A signed-out user is sent to `/login`; a user opening the other role's path is sent to their own
-dashboard. Inventory, Transactions and Notifications are the same pages for both roles, and so
-will Reports be.
+dashboard. Inventory, Transactions, Reports and Notifications are the same pages for both roles
+(`src/pages/shared/`). Reports shows all four reports and the export buttons to both roles.
 
 ### Error format
 
@@ -1578,7 +1577,7 @@ planned.
 | 14 | Are alerts stored or derived; meaning of `createdAt`; unread again when they return? | Decided | Stored: the current alert conditions, kept up to date by `NotificationService` (section 4.6), with their figures worked out when read; `createdAt` is when the condition was first seen; unread again when it returns |
 | 15 | When is `lastActiveAt` updated? | Open | At login only |
 | 16 | Is stock valued at the item's Average Cost or per batch? Should a disposal produce an accounting write-off? | Decided | One moving Average Cost per item, for available, expired and disposed stock. Expired stock awaiting disposal stays in the quantity the average is built on; a disposal does not change the average. No write-off entry |
-| 17 | Who may see the reports? | Decided | Both roles, all four reports (storekeeper page planned) |
+| 17 | Who may see the reports? | Decided | Both roles, all four reports, on the same Reports page (`/admin/reports`, `/storekeeper/reports`) |
 | 18 | Is the history of edits to a transaction kept? | Decided | Yes, every edit with who, when, old and new values ("Edit history", section 3). Manufacturer and manufacturing date changes are included |
 | 19 | Barcodes: QR or barcode, generated or factory, one per item or many? | Decided | Factory barcodes only, no generated codes. Several per item, each linked to a manufacturer, unique system-wide (archived items included). No barcode changes on an archived item. An unknown barcode can be linked from Incoming. A different pack size is a different item ("Barcodes and manufacturers", section 3) |
 | 20 | Where does the manufacturer belong, and what makes a batch number unique? | Decided | On the batch, never the item; one item across manufacturers, one Average Cost. Batch number printed by the manufacturer, unique per item + manufacturer among active batches; no manufacturer = one group |

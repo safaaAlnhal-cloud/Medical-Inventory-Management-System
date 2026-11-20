@@ -154,6 +154,11 @@ const Sidebar = () => {
                 Transactions
               </NavLink>
 
+              <NavLink to="/storekeeper/reports" className={navLinkClass}>
+                <TrendingUp className="w-4 h-4" />
+                Reports
+              </NavLink>
+
               <NavLink to="/storekeeper/notifications" className={navLinkClass}>
                 <Bell className="w-4 h-4" />
                 Notifications
