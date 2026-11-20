@@ -1392,9 +1392,12 @@ All exports are produced **by the backend**, in three formats, with **no row lim
 - `422` for a missing or unknown `format`, for a bad date, an end date before the start date, or
   a category / item that does not exist. `404` for an unknown `:type`. In every case nothing is
   built and nothing is logged.
-- All four reports can be exported, Critical Items included: the Reports page has an Export PDF,
-  Export Excel and Export CSV button on every tab. The file holds the filters the report was
+- All four reports can be exported, Critical Items included: the Reports page has an Export PDF
+  and an Export Excel button on every tab. The file holds the filters the report was
   **generated** with (not unapplied changes in the selects) and the current search.
+- **CSV hidden (decided):** the page shows no Export CSV button. The API still builds CSV
+  (`format=csv`) and its tests still run, so bringing it back is one line in `EXPORT_BUTTONS`
+  (`src/pages/shared/ReportsPage.jsx`).
 - **Files:** PDF with dompdf (A4 landscape, the heading row repeated on every page, "Page x of y"),
   Excel with OpenSpout (one sheet, numbers kept as numbers, money formatted `$#,##0.00`), CSV
   with a UTF-8 mark so Excel opens it correctly. Names are `meditrack-{type}-{YYYY-MM-DD}.{format}`.
@@ -1407,8 +1410,8 @@ All exports are produced **by the backend**, in three formats, with **no row lim
   backend's own message is shown (a 401 still signs the user out).
 - **Mock mode (decided, implemented):** a browser cannot run the backend's file generation, so in
   mock mode Export PDF opens the print dialog (one page of at most 1000 rows; if the report has
-  more, the page and the printout say so), and Export Excel / Export CSV are disabled with a note
-  that they need the server.
+  more, the page and the printout say so), and Export Excel is disabled with a note that it
+  needs the server.
 - **Decided:** item names are in English only, so the PDF is built with a library without Arabic
   text shaping (dompdf). Arabic names would need a different library (mPDF).
 - **Known limitation:** a very large PDF takes noticeably longer than the same Excel or CSV file.
@@ -1585,7 +1588,7 @@ planned.
 | 22 | Item details, archive reason and history | Decided | Six optional item fields (active ingredient, strength, dosage form, storage conditions, uses, description); manufacturing date and optional supplier on the batch; archiving requires a reason; every archiving and restore is kept in an archive history |
 | 23 | User expiry | Decided | Account expiry (not password expiry), storekeepers only, date set by the admin; alerts 7 days before and on the last day, to the admin and the storekeeper; expired accounts cannot sign in and their tokens get `401`; no extension request |
 | 24 | Alert priority | Decided | Every alert type kept; order: expired, out of stock, expiring soon, low stock, then account alerts; the same ranks in Critical Inventory |
-| 25 | Report export | Decided | PDF, Excel and CSV, all built by the backend, no row limit, with the report information in the file; each successful export logged in `report_exports`; no page for the log yet |
+| 25 | Report export | Decided | PDF, Excel and CSV, all built by the backend (the page shows PDF and Excel; CSV is hidden but still supported by the API), no row limit, with the report information in the file; each successful export logged in `report_exports`; no page for the log yet |
 | 26 | Insurance support | Deferred | Nothing is built: no field, table or endpoint |
 | 27 | Changing one's own email from Profile, and email confirmation | Deferred | Waits for the team's discussion; nothing is built |
 
@@ -1601,7 +1604,7 @@ planned.
 | Item details | `dosageForm` is free text |
 | Barcodes | Linking a barcode always needs its manufacturer; barcodes are managed by their own endpoints, not the item form |
 | Outgoing | The chosen manufacturer's batches come first, nearest expiry first, from the backend; any batch can still be picked |
-| Export | CSV starts with the report information and filters; all four reports can be exported; Excel / CSV are disabled in mock mode; item names are English only (dompdf) |
+| Export | CSV starts with the report information and filters; all four reports can be exported; the page hides CSV; Excel is disabled in mock mode; item names are English only (dompdf) |
 
 ## 9. Database design (backend)
 
