@@ -4,7 +4,7 @@ import { ACCESS } from '../constants/users';
 import { EXPIRY_STATUS, STOCK_STATUS } from '../utils/stock';
 import { http } from './apiAxios';
 import { matchesSearch, readNotifications } from './mock/mockDb';
-import { isDisposal, selectActiveTransactions, selectCriticalInventory, selectInventory, selectNameMaps } from './mock/mockSelectors';
+import { isDisposal, selectActiveTransactions, selectCriticalInventory, selectInventory, selectNameMaps, sumTransactionValues } from './mock/mockSelectors';
 import { mapNotification, searchMockNotifications } from './notificationsApi';
 import { request } from './request';
 import { mapTransaction } from './transactionsApi';
@@ -22,12 +22,15 @@ const mapSummary = (dto) => ({
   expiredCount: Number(dto.expiredCount) || 0,
 });
 
-// { month: 'YYYY-MM', incoming, outgoing, disposed } - raw quantities, the UI scales the bars.
-//   incoming: stock received
-//   outgoing: stock issued for use (as in the reports, an expired stock disposal is not an issue)
-//   disposed: expired stock disposed of, reported apart so it is never counted as consumption
-// Known limitation: the quantities of all items are added together whatever their unit, so the
-// chart shows relative activity, not a stock figure. It includes archived items' history.
+// { month: 'YYYY-MM', incoming, outgoing, disposed } - values in money, the UI scales the bars.
+// Each transaction counts quantity x the unit cost stored on it (incoming: the purchase price;
+// outgoing: the Average Cost snapshot), the same value the movement_history report shows.
+// Decided 2026-11-19: money, not quantities, because quantities of different units (boxes and
+// bottles) cannot be added together.
+//   incoming: value received
+//   outgoing: value issued for use (as in the reports, an expired stock disposal is not an issue)
+//   disposed: value of expired stock disposed of, apart so it is never counted as consumption
+// Cancelled transactions are left out; archived items' history is included.
 const mapMovement = (dto) => ({ month: dto.month, incoming: Number(dto.incoming) || 0, outgoing: Number(dto.outgoing) || 0, disposed: Number(dto.disposed) || 0 });
 
 // { id, itemId, categoryId, quantity, status } where status is a stock or expiry status.
@@ -70,7 +73,8 @@ export const getStockMovementApi = async ({ months = 6 } = {}) => {
       const keys = Array.from({ length: months }, (_, index) => toMonthKey(new Date(now.getFullYear(), now.getMonth() - (months - 1 - index), 1)));
       return keys.map((month) => {
         const inMonth = selectActiveTransactions(db).filter((tx) => tx.date.startsWith(month));
-        const total = (matches) => inMonth.filter(matches).reduce((sum, tx) => sum + tx.quantity, 0);
+        // Each transaction's value as its movement_history row shows it, as the backend does.
+        const total = (matches) => sumTransactionValues(inMonth.filter(matches));
         return {
           month,
           incoming: total((tx) => tx.type === TRANSACTION_TYPES.INCOMING),

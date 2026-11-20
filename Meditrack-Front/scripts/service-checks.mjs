@@ -152,7 +152,6 @@ try {
     await rejection(users.getUsersApi(), 403);
     await rejection(users.createUserApi({ name: 'X', email: 'x@y.zz', password: 'secret1' }), 403);
     await rejection(categories.createCategoryApi({ name: 'Nope' }), 403);
-    await rejection(reports.getReportApi('summary', sixMonths), 403);
     await rejection(dashboard.getStockMovementApi(), 403);
   });
 
@@ -171,6 +170,9 @@ try {
     const user = await signIn(STOREKEEPER);
     assert.ok((await inventory.getInventoryItemsApi()).length > 0);
     assert.ok((await transactions.getIncomingTransactionsApi()).length > 0);
+    for (const type of ['summary', 'critical_items', 'movement_history', 'inventory_value']) {
+      assert.equal((await reports.getReportApi(type, sixMonths)).type, type);
+    }
     assert.equal((await profile.getProfileApi()).id, user.id);
   });
 
@@ -769,7 +771,8 @@ try {
     await transactions.createDisposalTransactionApi({ itemId, batchId: expiredBatchId, quantity: 4, date: today });
     const after = (await dashboard.getStockMovementApi()).find((entry) => entry.month === month);
     assert.equal(after.outgoing, before.outgoing, 'a disposal is not stock issued');
-    assert.equal(after.disposed, before.disposed + 4);
+    // The chart is in money (decided 2026-11-19): 4 boxes x the $6.3333 Average Cost snapshot.
+    assert.equal(after.disposed, Math.round((before.disposed + 4 * 6.3333) * 100) / 100);
   });
 
   check('disposal: reduces the expired quantity and the batch, and is recorded as a disposal', async () => {
@@ -1024,8 +1027,9 @@ try {
     await signIn(ADMIN);
     const refused = await rejection(reports.exportReportApi('summary', 'csv', sixMonths), 501);
     assert.match(refused.message, /need the server/);
+    // Both roles may export, as on the backend: the storekeeper gets the same answer, not a 403.
     await signIn(STOREKEEPER);
-    await rejection(reports.exportReportApi('summary', 'csv', sixMonths), 403);
+    await rejection(reports.exportReportApi('summary', 'csv', sixMonths), 501);
   });
 
   for (const { name, run } of checks) {

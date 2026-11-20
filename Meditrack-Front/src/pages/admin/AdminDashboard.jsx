@@ -18,7 +18,7 @@ import {
 } from '../../services/dashboardApi';
 import { getNotificationsApi } from '../../services/notificationsApi';
 import { getReportApi } from '../../services/reportsApi';
-import { EMPTY_VALUE, formatCurrency, formatMonth, formatNumber } from '../../utils/formatters';
+import { CURRENCY_SYMBOL, EMPTY_VALUE, formatCurrency, formatMonth, formatNumber } from '../../utils/formatters';
 import { EXPIRY_WARNING_DAYS } from '../../utils/stock';
 
 const EMPTY_SUMMARY = { totalItems: 0, availableCount: 0, lowStockCount: 0, outOfStockCount: 0, expiringSoonCount: 0, expiredCount: 0 };
@@ -26,11 +26,19 @@ const EMPTY_LIST = [];
 
 const MOVEMENT_MONTHS = 6;
 const ALERTS_SHOWN = 5;
-// Diverging chart scale: ticks every AXIS_INTERVAL units on both sides of zero, labelled without
-// signs (400, 200, 0, 200, 400). It reaches at least MIN_AXIS_MAX and extends by whole intervals
-// when a month is busier, so no bar is ever cut off.
-const AXIS_INTERVAL = 200;
-const MIN_AXIS_MAX = 400;
+// Diverging chart scale, in money: two ticks on each side of zero, labelled without signs
+// ($4k, $2k, $0, $2k, $4k). The interval is the smallest round step (1, 2 or 5 times a power of
+// ten, at least MIN_AXIS_INTERVAL) whose second tick reaches the busiest month, so no bar is ever
+// cut off whether a month moved $300 or $300,000.
+const MIN_AXIS_INTERVAL = 100;
+const axisIntervalFor = (maxValue) => {
+  const needed = Math.max(MIN_AXIS_INTERVAL, maxValue / 2);
+  const power = 10 ** Math.floor(Math.log10(needed));
+  const step = [1, 2, 5, 10].find((factor) => factor * power >= needed);
+  return step * power;
+};
+// Axis labels stay short: $500, $2k, $1.5M.
+const formatAxisMoney = (value) => `${CURRENCY_SYMBOL}${value.toLocaleString('en-US', { notation: 'compact', maximumFractionDigits: 1 })}`;
 
 // Only the totals of these two reports are shown, so one row is requested.
 const loadInventoryValue = () => getReportApi('inventory_value', { pageSize: 1 });
@@ -163,15 +171,16 @@ const AdminDashboard = () => {
   ];
   const statusPercentages = wholePercentages(statusSegments.map((segment) => segment.value));
 
-  // Diverging chart: months run along the bottom and quantities up the side. Each month's
-  // incoming quantity rises above the zero line (stock added) and its outgoing quantity drops
-  // below it (stock removed: issues and expired disposals). The service returns both as positive
-  // totals; outgoing is only drawn as negative, the data itself is not changed.
+  // Diverging chart: months run along the bottom and money up the side. Each month's incoming
+  // value rises above the zero line (stock bought) and its issued value drops below it (stock
+  // used). Expired disposals are named in the tooltip, not drawn. The service returns both as
+  // positive totals; outgoing is only drawn as negative, the data itself is not changed.
   // Both halves share one scale, round and at or above the busiest month.
   const maxMovement = Math.max(0, ...stockMovement.flatMap((month) => [month.incoming, month.outgoing]));
-  const axisMax = Math.max(MIN_AXIS_MAX, Math.ceil(maxMovement / AXIS_INTERVAL) * AXIS_INTERVAL);
-  // Tick values top to bottom: +axisMax ... 0 ... -axisMax (e.g. 400, 200, 0, -200, -400).
-  const axisTicks = Array.from({ length: (2 * axisMax) / AXIS_INTERVAL + 1 }, (_, index) => axisMax - index * AXIS_INTERVAL);
+  const axisInterval = axisIntervalFor(maxMovement);
+  const axisMax = 2 * axisInterval;
+  // Tick values top to bottom: +axisMax ... 0 ... -axisMax (e.g. 4000, 2000, 0, -2000, -4000).
+  const axisTicks = [axisMax, axisInterval, 0, -axisInterval, -axisMax];
   const barHeight = (value) => `${axisMax ? (value / axisMax) * 50 : 0}%`;
   // Distance from the top of the plot: +axisMax at 0%, zero at 50%, -axisMax at 100%.
   const axisTop = (tick) => `${50 - (tick / axisMax) * 50}%`;
@@ -220,7 +229,7 @@ const AdminDashboard = () => {
           className="lg:col-span-3"
           divider={false}
           title="Transaction Activity"
-          subtitle={`Stock in ↑ and out ↓ by month · Last ${MOVEMENT_MONTHS} months`}
+          subtitle={`Value in ↑ and out ↓ by month · Last ${MOVEMENT_MONTHS} months`}
           action={<div className="hidden sm:block"><Legend /></div>}
         >
           {maxMovement === 0 ? (
@@ -231,16 +240,16 @@ const AdminDashboard = () => {
               {/* The values, for screen readers; the drawing below repeats them visually. */}
               <ul className="sr-only">
                 {stockMovement.map((month) => (
-                  <li key={month.month}>{`${formatMonth(month.month)}: ${formatNumber(month.incoming)} incoming, ${formatNumber(month.outgoing)} outgoing${month.disposed ? `, ${formatNumber(month.disposed)} expired stock disposed (not charted)` : ''}`}</li>
+                  <li key={month.month}>{`${formatMonth(month.month)}: ${formatCurrency(month.incoming)} incoming, ${formatCurrency(month.outgoing)} outgoing${month.disposed ? `, ${formatCurrency(month.disposed)} of expired stock disposed (not charted)` : ''}`}</li>
                 ))}
               </ul>
               <div aria-hidden="true" className="flex-1 flex flex-col min-h-56">
                 <div className="flex-1 flex gap-3">
-                  {/* Quantity axis: positive (incoming) above zero, negative (outgoing) below. */}
+                  {/* Money axis: positive (incoming) above zero, negative (outgoing) below. */}
                   <div className="relative w-10 shrink-0">
                     {axisTicks.map((tick) => (
                       <span key={tick} style={{ top: axisTop(tick) }} className={`absolute right-0 -translate-y-1/2 text-[10px] font-bold tabular-nums whitespace-nowrap ${tick === 0 ? 'text-ink' : 'text-muted'}`}>
-                        {formatNumber(Math.abs(tick))}
+                        {formatAxisMoney(Math.abs(tick))}
                       </span>
                     ))}
                   </div>
@@ -253,12 +262,12 @@ const AdminDashboard = () => {
                         <div key={month.month} className="group relative flex-1 rounded-md hover:bg-dashboard-bg/80 transition-colors">
                           <div
                             style={{ height: barHeight(month.incoming) }}
-                            title={`${formatMonth(month.month)} · Incoming: ↑ ${formatNumber(month.incoming)}`}
+                            title={`${formatMonth(month.month)} · Incoming: ↑ ${formatCurrency(month.incoming)}`}
                             className="absolute bottom-1/2 left-1/2 -translate-x-1/2 w-4 sm:w-6 bg-brand rounded-t-md transition-all duration-500 group-hover:brightness-125"
                           />
                           <div
                             style={{ height: barHeight(month.outgoing) }}
-                            title={`${formatMonth(month.month)} · Outgoing: ↓ ${formatNumber(month.outgoing)}${month.disposed ? ` · Expired stock disposed (not charted): ${formatNumber(month.disposed)}` : ''}`}
+                            title={`${formatMonth(month.month)} · Outgoing: ↓ ${formatCurrency(month.outgoing)}${month.disposed ? ` · Expired stock disposed (not charted): ${formatCurrency(month.disposed)}` : ''}`}
                             className="absolute top-1/2 left-1/2 -translate-x-1/2 w-4 sm:w-6 bg-[#8db9a8] rounded-b-md transition-all duration-500 group-hover:brightness-90"
                           />
                         </div>

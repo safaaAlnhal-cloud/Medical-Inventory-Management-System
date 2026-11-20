@@ -167,11 +167,12 @@ const buildMockReport = (db, type, { from, to, categoryId, itemId, search = '', 
 
 // ---- Service ---------------------------------------------------------------------------
 
+// Any signed-in user: both roles read every report.
 // Filters: { from, to (ISO dates), categoryId, itemId, search, page, pageSize }
 export const getReportApi = async (type, { from, to, categoryId, itemId, search = '', page = 1, pageSize = 10 } = {}) => {
   const dto = await request({
     delay: 100,
-    access: ACCESS.ADMIN,
+    access: ACCESS.USER,
     api: () => http.get(`/reports/${type}`, { params: { from, to, categoryId, itemId, search: search || undefined, page, pageSize } }),
     mock: (db) => buildMockReport(db, type, { from, to, categoryId, itemId, search, page, pageSize }),
   });
@@ -204,10 +205,10 @@ const toExportError = async (response) => {
 // Downloads every row of a report as a file built by the backend:
 // GET /reports/:type/export?format=pdf|xlsx|csv, with the report's filters and no page.
 // Returns { blob, filename }. Real API only: in mock mode the page prints the PDF itself, and
-// Excel / CSV need the server.
+// Excel / CSV need the server. Any signed-in user, like the reports themselves.
 export const exportReportApi = async (type, format, { from, to, categoryId, itemId, search = '' } = {}) => request({
   delay: 100,
-  access: ACCESS.ADMIN,
+  access: ACCESS.USER,
   api: async () => {
     const response = await apiAxios.get(`/reports/${type}/export`, {
       params: { format, from, to, categoryId, itemId, search: search || undefined },

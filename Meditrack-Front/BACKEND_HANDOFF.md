@@ -136,12 +136,11 @@ Route and role structure (**implemented**, `src/routes`):
 | `/` | Public | Landing page |
 | `/login` | Public (a signed-in user is sent to their dashboard) | Login |
 | `/admin/dashboard`, `/admin/inventory`, `/admin/transactions`, `/admin/users`, `/admin/reports`, `/admin/notifications`, `/admin/settings` | Admin | |
-| `/storekeeper/dashboard`, `/storekeeper/inventory`, `/storekeeper/transactions`, `/storekeeper/notifications`, `/storekeeper/profile` | Storekeeper | |
-| `/storekeeper/reports` | Storekeeper | **Planned:** the same Reports page, with all four reports, linked from the storekeeper sidebar |
+| `/storekeeper/dashboard`, `/storekeeper/inventory`, `/storekeeper/transactions`, `/storekeeper/reports`, `/storekeeper/notifications`, `/storekeeper/profile` | Storekeeper | |
 
 A signed-out user is sent to `/login`; a user opening the other role's path is sent to their own
-dashboard. Inventory, Transactions and Notifications are the same pages for both roles, and so
-will Reports be.
+dashboard. Inventory, Transactions, Reports and Notifications are the same pages for both roles
+(`src/pages/shared/`). Reports shows all four reports and the export buttons to both roles.
 
 ### Error format
 
@@ -1245,8 +1244,8 @@ order and applies the same audience rule.
 | Method | Endpoint | Access | Response |
 |---|---|---|---|
 | GET | `/dashboard/summary` | Any signed-in user | `{ "totalItems": 6, "availableCount": 3, "lowStockCount": 2, "outOfStockCount": 1, "expiringSoonCount": 2, "expiredCount": 0 }` |
-| GET | `/dashboard/stock-movement?months=6` | Admin | `[{ "month": "2026-05", "incoming": 180, "outgoing": 70, "disposed": 0 }]`, oldest month first, one entry per month even when zero |
-| GET | `/dashboard/critical-inventory?search=` | Storekeeper | `[{ "id": "low_stock-2", "itemId": 2, "categoryId": 1, "quantity": 15, "status": "low_stock" }]` |
+| GET | `/dashboard/stock-movement?months=6` | Admin | `[{ "month": "2026-05", "incoming": 1240.5, "outgoing": 610, "disposed": 0 }]` (money), oldest month first, one entry per month even when zero |
+| GET | `/dashboard/critical-inventory?search=` | Any signed-in user (not used by the UI, not built) | `[{ "id": "low_stock-2", "itemId": 2, "categoryId": 1, "quantity": 15, "status": "low_stock" }]` |
 | GET | `/dashboard/alerts?search=&limit=3` | Any signed-in user | The first `limit` (1–50, default 3) alerts of `GET /notifications`, in the priority order of section 4.6 (expired, out of stock, expiring soon, low stock, accounts). Both dashboards show the first 5 |
 | GET | `/dashboard/recent-transactions?search=&limit=5` | Any signed-in user | Active `Transaction[]` of both types, newest first |
 
@@ -1259,11 +1258,17 @@ order and applies the same audience rule.
 - In stock movement, `outgoing` counts stock **issued** only; expired stock disposals are returned
   apart as `disposed` (as in the reports, a disposal is not consumption). The chart draws incoming
   and outgoing; `disposed` is named in its tooltips.
-- `incoming` / `outgoing` in stock movement are total quantities for the calendar month (by
-  transaction `date`), over the last `months` calendar months including the current one. The
-  frontend scales the bars. **Known limitation:** the quantities of all items are added together
-  whatever their unit, so the chart shows relative activity, not a stock figure. It includes the
-  history of archived items.
+- **Decided 2026-11-19, implemented:** `incoming` / `outgoing` / `disposed` in stock movement are
+  **values in money**, not quantities (quantities of different units, boxes and bottles, cannot be
+  added together). Each transaction counts `quantity * unitCost` with the `unitCost` stored on it
+  (incoming: the purchase price; outgoing: the Average Cost snapshot), the same value as the
+  `movement_history` report's `totalValue`; rounded to 2 decimals once per month. By calendar
+  month of the transaction `date`, over the last `months` calendar months including the current
+  one (`months` 1–24, default 6, `422` otherwise). Cancelled transactions are excluded; archived
+  items' history is included. The frontend scales the bars and labels the axis in money.
+- **Implemented** (backend): `summary`, `stock-movement` (admin only, `403` otherwise) and
+  `recent-transactions` (`limit` 1–50, default 5). `critical-inventory` is no longer read by
+  either dashboard (both show `/dashboard/alerts`); it is not built.
 - Each dashboard section is loaded by its own request. If one fails, the others are still shown
   and a banner names what could not be loaded.
 - **Implemented:** the admin dashboard also reads two totals from the reports endpoint (section
@@ -1293,6 +1298,11 @@ page for storekeepers is **planned**, see section 2). Money values are not hidde
 storekeepers: they already see unit costs on the Inventory and Transactions pages.
 
 `:type` is `summary`, `movement_history`, `critical_items` or `inventory_value`. An unknown type is `404`.
+**Implemented** (backend): `summary` and `critical_items` (`ReportService::build`); `422` on the
+same filters as the export, `page` 1 or more (a page past the end returns the last page),
+`pageSize` 1–1000 (default 10). `critical_items` rows also carry `expiryDate` (the nearest expiry
+of the batches behind an expiry row; `null` on a stock row). `movement_history` and
+`inventory_value` are implemented too (see below).
 The frontend requests `pageSize=5` for the table. Exports use the export endpoint below (every
 row, no page); only the mock mode's print-dialog PDF still asks for `pageSize=1000`.
 
@@ -1341,16 +1351,24 @@ Response (same envelope for every type):
   awaiting disposal; the expiring-soon row's is the stock in the batches about to expire.
 
 
-- `breakdown` is returned by `inventory_value` only: `[{ "categoryId": 1, "value": 6381.25 }]`, highest value first. Other types return `[]`.
-  The Reports page no longer charts it: the Inventory Value chart compares `incomingValue` with `outgoingValue`.
+- `breakdown` is returned by `inventory_value` only: `[{ "categoryId": 1, "value": 6381.25 }]`
+  (the `stockValue` of each category, highest value first; categories with no stock value are
+  left out). Other types return `[]`. **Implemented** (backend, mock and UI): the Inventory Value
+  donut charts it (decided 2026-11-20): one segment per category, the fifth and later added up as
+  "Other", the total `stockValue` in the centre.
 - `critical_items` rows follow the same one-row-per-problem rule as `/dashboard/critical-inventory`;
   `totalItems` is the number of distinct items and `alerts` the number of rows.
 - `movement_history` `totalValue` is `quantity * unitCost` for both types, using the `unitCost` stored on the transaction
   (incoming: the purchase price; outgoing: the Average Cost snapshot). `null` only when that cannot be calculated.
 - `incomingValue` / `outgoingValue` are the sums of that same `quantity * unitCost` over the incoming / outgoing
   transactions in the `from`-`to` range (cancelled ones excluded, archived items' ones included).
-- The Inventory Value donut compares `incomingValue` with `outgoingValue`. Its legend shows the two
-  labels only; the amounts are in the cards beside it.
+- `incomingValue` and `outgoingValue` are shown under the Inventory Value donut, apart, headed
+  "In the selected period": they are the only figures of that report that follow the Period
+  (the donut and the table are today's inventory).
+- **Implemented** (backend): `movement_history` and `inventory_value`, so all four reports, and
+  the export of each, now run on the real data. Every money value is `quantity * unitCost`
+  rounded to cents **per transaction**, then added up, so each total is exactly the sum of the
+  `totalValue` cells (`ReportService::value`; the dashboard stock movement uses the same).
 
 #### Export (decided, decision 25; implemented)
 
@@ -1559,7 +1577,7 @@ planned.
 | 14 | Are alerts stored or derived; meaning of `createdAt`; unread again when they return? | Decided | Stored: the current alert conditions, kept up to date by `NotificationService` (section 4.6), with their figures worked out when read; `createdAt` is when the condition was first seen; unread again when it returns |
 | 15 | When is `lastActiveAt` updated? | Open | At login only |
 | 16 | Is stock valued at the item's Average Cost or per batch? Should a disposal produce an accounting write-off? | Decided | One moving Average Cost per item, for available, expired and disposed stock. Expired stock awaiting disposal stays in the quantity the average is built on; a disposal does not change the average. No write-off entry |
-| 17 | Who may see the reports? | Decided | Both roles, all four reports (storekeeper page planned) |
+| 17 | Who may see the reports? | Decided | Both roles, all four reports, on the same Reports page (`/admin/reports`, `/storekeeper/reports`) |
 | 18 | Is the history of edits to a transaction kept? | Decided | Yes, every edit with who, when, old and new values ("Edit history", section 3). Manufacturer and manufacturing date changes are included |
 | 19 | Barcodes: QR or barcode, generated or factory, one per item or many? | Decided | Factory barcodes only, no generated codes. Several per item, each linked to a manufacturer, unique system-wide (archived items included). No barcode changes on an archived item. An unknown barcode can be linked from Incoming. A different pack size is a different item ("Barcodes and manufacturers", section 3) |
 | 20 | Where does the manufacturer belong, and what makes a batch number unique? | Decided | On the batch, never the item; one item across manufacturers, one Average Cost. Batch number printed by the manufacturer, unique per item + manufacturer among active batches; no manufacturer = one group |

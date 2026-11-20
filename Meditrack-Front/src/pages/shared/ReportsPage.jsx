@@ -13,7 +13,7 @@ import { downloadFile } from '../../utils/downloadFile';
 import { formatDate, getInitial } from '../../utils/formatters';
 import { resolveId } from '../../utils/ids';
 import { printReport } from '../../utils/printReport';
-import { buildDonutGradient, DATE_RANGES, DEFAULT_DATE_RANGE, getPageWindow, resolveDateRange } from '../../utils/reports';
+import { buildDonutGradient, DATE_RANGES, DEFAULT_DATE_RANGE, DONUT_COLORS, getPageWindow, resolveDateRange } from '../../utils/reports';
 import { REPORT_TABS, REPORT_VIEWS } from './reportConfig';
 
 const PAGE_SIZE = 5;
@@ -30,8 +30,6 @@ const EXPORT_BUTTONS = [
 const SERVER_ONLY_NOTE = 'Excel and CSV exports need the server. They are not available in demo mode.';
 const DEFAULT_FILTERS = { dateRange: DEFAULT_DATE_RANGE, categoryId: 'all', itemId: 'all' };
 const EMPTY_REPORT = { totals: {}, breakdown: [], rows: [], pagination: { page: 1, pageSize: PAGE_SIZE, totalItems: 0, totalPages: 1 } };
-// Same three colours, in the same order, as the donut segments (DONUT_COLORS in utils/reports.js).
-const LEGEND_DOT_CLASSES = ['bg-[#16423c]', 'bg-[#409689]', 'bg-[#9bd4cd]'];
 
 const sameFilters = (a, b) => a.dateRange === b.dateRange && a.categoryId === b.categoryId && a.itemId === b.itemId;
 
@@ -72,6 +70,8 @@ const ReportsPage = () => {
   const report = data?.type === activeTab ? data : EMPTY_REPORT;
   const { pagination } = report;
   const chartSegments = view.chart(report, lookups);
+  const chartColors = view.chartColors ?? DONUT_COLORS;
+  const chartCenter = view.chartCenter?.(report);
 
   const handleGenerateReport = () => {
     if (sameFilters(filters, draftFilters)) reload();
@@ -325,25 +325,50 @@ const ReportsPage = () => {
           <div className="flex-1 flex flex-col sm:flex-row xl:flex-col items-center justify-center gap-6">
             <div
               role="img"
-              aria-label={`Distribution of ${view.centerLabel}: ${chartSegments.map((segment) => `${segment.label} ${view.chartValue(segment.value)}`).join(', ')}`}
+              aria-label={`Distribution of ${view.centerLabel}: ${chartSegments.length ? chartSegments.map((segment) => `${segment.label} ${view.chartValue(segment.value)}`).join(', ') : 'nothing to show'}`}
               className="relative w-44 h-44 rounded-full flex items-center justify-center shadow-inner shrink-0"
-              style={{ background: buildDonutGradient(chartSegments.map((segment) => segment.value)) }}
+              style={{ background: buildDonutGradient(chartSegments.map((segment) => segment.value), chartColors) }}
             >
               <div className="w-28 h-28 bg-white rounded-full flex flex-col items-center justify-center shadow-sm text-center px-1">
-                <span className="text-[10px] text-slate-400 font-bold">Distribution</span>
-                <span className="text-xs font-extrabold text-slate-900 mt-0.5">{view.centerLabel}</span>
+                <span className="text-[10px] text-slate-400 font-bold">{chartCenter ? chartCenter.caption : 'Distribution'}</span>
+                <span className="text-xs font-extrabold text-slate-900 mt-0.5">{chartCenter ? chartCenter.value : view.centerLabel}</span>
+                {chartCenter && <span className="text-[10px] text-slate-400 font-bold">by category</span>}
               </div>
             </div>
 
-            <ul className="w-full sm:w-auto xl:w-full flex flex-col gap-2.5 text-xs font-bold">
-              {chartSegments.map((segment, index) => (
-                <li key={segment.label} className="flex items-center gap-2">
-                  <span aria-hidden="true" className={`w-3 h-3 rounded-full shrink-0 ${LEGEND_DOT_CLASSES[index]}`}></span>
-                  <span className="text-slate-600 flex-1">{segment.label}</span>
-                  <span className="text-slate-900 font-extrabold sm:ml-4 xl:ml-0">{view.chartValue(segment.value)}</span>
-                </li>
-              ))}
-            </ul>
+            <div className="w-full sm:w-auto xl:w-full flex flex-col gap-4">
+              {chartSegments.length === 0 && view.chartEmpty ? (
+                <p className="text-xs font-semibold text-slate-400 text-center">{view.chartEmpty}</p>
+              ) : (
+                <ul className="flex flex-col gap-2.5 text-xs font-bold">
+                  {chartSegments.map((segment, index) => (
+                    <li key={segment.label} className="flex items-center gap-2">
+                      <span aria-hidden="true" className="w-3 h-3 rounded-full shrink-0" style={{ backgroundColor: chartColors[index % chartColors.length] }}></span>
+                      <span className="text-slate-600 flex-1">{segment.label}</span>
+                      <span className="text-slate-900 font-extrabold sm:ml-4 xl:ml-0">{view.chartValue(segment.value)}</span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+
+              {/* The figures that follow the Period, apart from the donut, which is today's stock. */}
+              {view.periodFigures && (
+                <div className="pt-3 border-t border-slate-100">
+                  <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">
+                    In the selected period · {DATE_RANGES.find((range) => range.value === filters.dateRange)?.label}
+                  </p>
+                  <ul className="flex flex-col gap-2 text-xs font-bold">
+                    {view.periodFigures.map(({ label, icon: Icon, value }) => (
+                      <li key={label} className="flex items-center gap-2">
+                        <Icon aria-hidden="true" className="w-3.5 h-3.5 text-[#409689] shrink-0" />
+                        <span className="text-slate-600 flex-1">{label}</span>
+                        <span className="text-slate-900 font-extrabold sm:ml-4 xl:ml-0">{value(report.totals)}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+            </div>
           </div>
         </div>
       </div>

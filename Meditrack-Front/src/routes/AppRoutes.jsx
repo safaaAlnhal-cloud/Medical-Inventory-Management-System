@@ -5,11 +5,11 @@ import { getHomePath, ROLES } from '../constants/users';
 import Login from '../pages/auth/Login';
 import LandingPage from '../pages/landing/LandingPage';
 import AdminDashboard from '../pages/admin/AdminDashboard';
-import ReportsPage from '../pages/admin/ReportsPage';
 import SettingsPage from '../pages/admin/SettingsPage';
 import UsersPage from '../pages/admin/UsersPage';
 import InventoryPage from '../pages/shared/InventoryPage';
 import NotificationsPage from '../pages/shared/NotificationsPage';
+import ReportsPage from '../pages/shared/ReportsPage';
 import TransactionsPage from '../pages/shared/TransactionsPage';
 import ProfilePage from '../pages/storekeeper/ProfilePage';
 import StorekeeperDashboard from '../pages/storekeeper/StorekeeperDashboard';
@@ -41,6 +41,7 @@ const AppRoutes = () => (
           <Route path="/storekeeper/dashboard" element={<StorekeeperDashboard />} />
           <Route path="/storekeeper/inventory" element={<InventoryPage />} />
           <Route path="/storekeeper/transactions" element={<TransactionsPage />} />
+          <Route path="/storekeeper/reports" element={<ReportsPage />} />
           <Route path="/storekeeper/notifications" element={<NotificationsPage />} />
           <Route path="/storekeeper/profile" element={<ProfilePage />} />
         </Route>

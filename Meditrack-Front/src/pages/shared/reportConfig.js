@@ -1,6 +1,7 @@
 import { Activity, AlertTriangle, ArrowLeftRight, CheckCircle2, DollarSign, Layers3, Package, TrendingDown, TrendingUp } from 'lucide-react';
 import { OUTGOING_REASON_LABELS, OUTGOING_REASONS, TRANSACTION_TYPES } from '../../constants/inventory';
 import { EMPTY_VALUE, formatCurrency, formatDate, formatNumber, formatQuantity } from '../../utils/formatters';
+import { DONUT_COLORS_FIVE } from '../../utils/reports';
 import { EXPIRY_STATUS, STATUS_LABELS, STOCK_STATUS } from '../../utils/stock';
 
 // Everything presentational about the reports lives here: tab labels, card titles, chart
@@ -22,6 +23,9 @@ const expiredNote = (row) => (row.expiredQuantity > 0 ? ` · ${formatNumber(row.
 
 const EXPIRY_ROW_STATUSES = [EXPIRY_STATUS.EXPIRED, EXPIRY_STATUS.EXPIRING_SOON];
 
+// The Inventory Value donut shows this many categories; the rest are one "Other" segment.
+const MAX_CATEGORY_SEGMENTS = 4;
+
 const CRITICAL_BADGE_CLASSES = {
   [EXPIRY_STATUS.EXPIRED]: 'bg-rose-100 text-rose-700',
   [STOCK_STATUS.OUT]: 'bg-rose-100 text-rose-700',
@@ -36,6 +40,12 @@ const CRITICAL_BADGE_CLASSES = {
 //            of the PDF export. The page itself no longer shows them as cards.
 //   chart:   (report, lookups) => [{ label, value }] donut segments
 //   chartValue: formats a segment's value for the chart legend (a count or an amount)
+//   Optional (inventory_value only):
+//     chartColors:   the segments' colours, darkest first (default DONUT_COLORS)
+//     chartCenter:   (report) => { caption, value } shown inside the donut instead of its name
+//     chartEmpty:    the note under an empty donut
+//     periodFigures: [{ label, icon, value(totals) }] figures that follow the Period, shown
+//                    under the donut with the period named
 //   columns: the four table headings
 //   row:     (row, lookups) => { secondary, quantity, note?, value, badgeClass? } cell text
 export const REPORT_VIEWS = {
@@ -138,10 +148,23 @@ export const REPORT_VIEWS = {
       { title: 'Expired Stock Value (awaiting disposal)', icon: AlertTriangle, value: money('expiredValue') },
       { title: 'Disposed Value', icon: AlertTriangle, value: money('disposedValue') },
     ],
-    // Money received against money issued, for the same filters as the table beside it.
-    chart: ({ totals }) => [
-      { label: 'Incoming Value', value: totals.incomingValue },
-      { label: 'Outgoing Value', value: totals.outgoingValue },
+    // Where the available stock value is: one segment per category, highest first (the
+    // report's breakdown). Past the fourth category the rest are added up as "Other", so the
+    // donut stays readable. Like the table, this is today's inventory.
+    chart: ({ breakdown }, lookups) => {
+      const shown = breakdown.slice(0, MAX_CATEGORY_SEGMENTS).map((entry) => ({ label: lookups.categoryName(entry.categoryId), value: entry.value }));
+      const rest = breakdown.slice(MAX_CATEGORY_SEGMENTS);
+      if (rest.length === 0) return shown;
+      return [...shown, { label: 'Other', value: Math.round(rest.reduce((sum, entry) => sum + entry.value, 0) * 100) / 100 }];
+    },
+    chartColors: DONUT_COLORS_FIVE,
+    chartCenter: ({ totals }) => ({ caption: 'Stock value', value: formatCurrency(totals.stockValue) }),
+    chartEmpty: 'No stock value to show.',
+    // Money received and issued: the only figures here that follow the Period, so they are
+    // shown apart, under the donut, with the period named.
+    periodFigures: [
+      { label: 'Incoming Value', icon: TrendingUp, value: money('incomingValue') },
+      { label: 'Outgoing Value', icon: TrendingDown, value: money('outgoingValue') },
     ],
     columns: ['ITEM NAME', 'CATEGORY', 'QUANTITY', 'TOTAL VALUE'],
     row: (row, lookups) => ({
