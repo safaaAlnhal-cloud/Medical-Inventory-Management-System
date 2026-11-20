@@ -5,7 +5,6 @@ namespace App\Services;
 use App\Enums\ExpiryStatus;
 use App\Enums\OutgoingReason;
 use App\Enums\StockStatus;
-use App\Enums\TransactionType;
 use App\Models\Batch;
 use App\Models\Item;
 use App\Models\Transaction;
@@ -22,6 +21,8 @@ use Illuminate\Database\Eloquent\Collection;
  */
 class DashboardService
 {
+    public function __construct(private readonly ReportService $reports) {}
+
     /**
      * GET /dashboard/summary: numbers of ACTIVE items, so nothing adds boxes to bottles.
      *
@@ -94,10 +95,12 @@ class DashboardService
                     $transaction->reason === OutgoingReason::ExpiredDisposal => 'disposed',
                     default => 'outgoing',
                 };
-                $totals[$transaction->date->format('Y-m')][$column] += $transaction->quantity * (float) $transaction->unit_cost;
+                // The value the movement_history row of this transaction shows, so a month adds
+                // up to the report's totalValue column.
+                $totals[$transaction->date->format('Y-m')][$column] += $this->reports->value($transaction);
             });
 
-        // Rounded once per month, not per transaction ("round the total, not the unit cost").
+        // Each value is already in cents; rounding the sums only removes floating-point noise.
         return array_map(
             fn (string $month, array $values) => ['month' => $month, ...array_map(fn (float $value) => round($value, 2), $values)],
             array_keys($totals),

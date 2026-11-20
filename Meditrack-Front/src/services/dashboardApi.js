@@ -4,7 +4,7 @@ import { ACCESS } from '../constants/users';
 import { EXPIRY_STATUS, STOCK_STATUS } from '../utils/stock';
 import { http } from './apiAxios';
 import { matchesSearch, readNotifications } from './mock/mockDb';
-import { isDisposal, selectActiveTransactions, selectCriticalInventory, selectInventory, selectNameMaps } from './mock/mockSelectors';
+import { isDisposal, selectActiveTransactions, selectCriticalInventory, selectInventory, selectNameMaps, sumTransactionValues } from './mock/mockSelectors';
 import { mapNotification, searchMockNotifications } from './notificationsApi';
 import { request } from './request';
 import { mapTransaction } from './transactionsApi';
@@ -73,8 +73,8 @@ export const getStockMovementApi = async ({ months = 6 } = {}) => {
       const keys = Array.from({ length: months }, (_, index) => toMonthKey(new Date(now.getFullYear(), now.getMonth() - (months - 1 - index), 1)));
       return keys.map((month) => {
         const inMonth = selectActiveTransactions(db).filter((tx) => tx.date.startsWith(month));
-        // Rounded once per month, not per transaction, as the backend does.
-        const total = (matches) => Math.round(inMonth.filter(matches).reduce((sum, tx) => sum + tx.quantity * (Number(tx.unitCost) || 0), 0) * 100) / 100;
+        // Each transaction's value as its movement_history row shows it, as the backend does.
+        const total = (matches) => sumTransactionValues(inMonth.filter(matches));
         return {
           month,
           incoming: total((tx) => tx.type === TRANSACTION_TYPES.INCOMING),
