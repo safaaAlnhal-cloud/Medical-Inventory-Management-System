@@ -72,10 +72,10 @@ try {
   const { toISODate } = await load('utils/dates.js');
   const { isoDateFromNow } = await load('mockData/mockDates.js');
 
-  // The priority rank of an alert (BACKEND_HANDOFF.md 4.6): expired 1, out of stock 2,
-  // expiring soon 3, low stock 4, account last day 5, account expiring 6.
-  const ALERT_RANKS = { out_of_stock: 2, low_stock: 4, account_expires_today: 5, account_expiring: 6 };
-  const alertRank = (alert) => (alert.type === 'expiring' ? (alert.expiryStatus === 'expired' ? 1 : 3) : ALERT_RANKS[alert.type]);
+  // The priority rank of an alert (BACKEND_HANDOFF.md 4.6): expired 1, expiring soon 2,
+  // out of stock 3, low stock 4, account last day 5, account expiring 6.
+  const ALERT_RANKS = { out_of_stock: 3, low_stock: 4, account_expires_today: 5, account_expiring: 6 };
+  const alertRank = (alert) => (alert.type === 'expiring' ? (alert.expiryStatus === 'expired' ? 1 : 2) : ALERT_RANKS[alert.type]);
 
   const ADMIN = { email: 'sara@medcenter.ps', password: 'admin123' };
   const STOREKEEPER = { email: 'omar@medcenter.ps', password: 'store123' };

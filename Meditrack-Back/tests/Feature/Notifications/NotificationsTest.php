@@ -89,8 +89,8 @@ class NotificationsTest extends TestCase
             ->assertOk()
             ->assertJsonPath('*.id', [
                 "expiring-{$expiredOld->id}", "expiring-{$expiredRecent->id}",
-                "out_of_stock-{$out->id}",
                 "expiring-{$soonFirst->id}", "expiring-{$soonLater->id}",
+                "out_of_stock-{$out->id}",
                 "low_stock-{$low->id}",
                 "account_expires_today-{$lastDay->id}", "account_expiring-{$inTwo->id}", "account_expiring-{$inThree->id}",
             ]);
