@@ -1,5 +1,5 @@
 import { NOTIFICATION_TYPES, OUTGOING_REASONS, TRANSACTION_STATUS, TRANSACTION_TYPES } from '../../constants/inventory';
-import { isAccountExpired, ROLES, USER_STATUS } from '../../constants/users';
+import { ACCOUNT_WARNING_DAYS, isAccountExpired, ROLES, USER_STATUS } from '../../constants/users';
 import { daysUntil, toISODate } from '../../utils/dates';
 import { EXPIRY_STATUS, getExpiryStatus, getStockStatus, STOCK_STATUS } from '../../utils/stock';
 
@@ -254,10 +254,6 @@ export const selectCriticalInventory = (inventory) =>
 // so every alert has the same shape (BACKEND_HANDOFF.md section 3, "Notification").
 const NO_ACCOUNT = { userId: null, accountExpiresOn: null, daysLeft: null };
 const NO_ITEM = { itemId: null, quantity: null, minQty: null, batchId: null, expiryDate: null, expiryStatus: null };
-
-// An account alert is raised from this many days before accountExpiresOn (backend:
-// NotificationService::ACCOUNT_WARNING_DAYS).
-const ACCOUNT_WARNING_DAYS = 7;
 
 // Stock alerts follow the item's AVAILABLE stock, so expired stock never hides a shortage.
 // Each batch with stock raises at most one expiry alert: "expired" (awaiting disposal, raised
