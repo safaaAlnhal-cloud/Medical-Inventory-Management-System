@@ -910,8 +910,8 @@ An **account** expires, not a password. There is no password expiry.
 - Changing the date or the status updates the alerts at once (they appear, disappear, or become a
   new unread alert).
 - There is no "request an extension" flow: the storekeeper asks the admin, who edits the date.
-  **Implemented:** while an active account has 0–7 days left, the storekeeper's Profile page shows
-  a red warning with the date and "Please contact the administrator to extend your account."
+  **Implemented:** while an active account has 0–7 days left, the storekeeper's Dashboard and Profile
+  page show a red warning with the date and "Please contact the administrator to extend your account."
   It uses `accountExpiresOn` from `GET /profile`; no backend change.
 
 User form fields (implemented): `name` *, `email` *, `password` * (create only), `status` *,

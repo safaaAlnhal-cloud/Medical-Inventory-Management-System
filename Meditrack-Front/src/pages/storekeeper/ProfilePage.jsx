@@ -1,29 +1,16 @@
 import React, { useState } from 'react';
-import { AlertTriangle, Lock, Mail, Shield, CheckCircle2, ChevronDown, ChevronUp } from 'lucide-react';
+import { Lock, Mail, Shield, CheckCircle2, ChevronDown, ChevronUp } from 'lucide-react';
+import { AccountExpiryWarning } from '../../components/common/AccountExpiryWarning';
 import { ErrorState, LoadingState } from '../../components/common/DataState';
 import InlineAlert from '../../components/common/InlineAlert';
 import PageHeader from '../../components/common/PageHeader';
-import { ACCOUNT_WARNING_DAYS, MIN_PASSWORD_LENGTH, ROLE_LABELS, USER_STATUS, USER_STATUS_LABELS } from '../../constants/users';
+import { MIN_PASSWORD_LENGTH, ROLE_LABELS, USER_STATUS, USER_STATUS_LABELS } from '../../constants/users';
 import { useAsyncData } from '../../hooks/useAsyncData';
 import { getErrorMessage } from '../../services/apiError';
 import { changePasswordApi, getProfileApi } from '../../services/profileApi';
-import { daysUntil } from '../../utils/dates';
-import { formatDate, getInitial } from '../../utils/formatters';
+import { getInitial } from '../../utils/formatters';
 
 const EMPTY_PASSWORDS = { currentPassword: '', newPassword: '', confirmPassword: '' };
-
-// The warning shown while an active account has 0-7 days left, in the same window as the
-// account alerts (BACKEND_HANDOFF.md 4.2). Only the admin can move the date: there is no
-// extension request in the system, so the message says who to ask.
-const expiryWarning = (profile) => {
-  if (profile.status !== USER_STATUS.ACTIVE || !profile.accountExpiresOn) return null;
-  const daysLeft = daysUntil(profile.accountExpiresOn);
-  if (daysLeft === null || daysLeft < 0 || daysLeft > ACCOUNT_WARNING_DAYS) return null;
-  const date = formatDate(profile.accountExpiresOn);
-  return daysLeft === 0
-    ? `Your account expires today (${date}). From tomorrow you will not be able to sign in.`
-    : `Your account expires in ${daysLeft} ${daysLeft === 1 ? 'day' : 'days'}, on ${date}. After that date you will not be able to sign in.`;
-};
 const passwordInputClass = 'w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold focus:outline-none focus:border-emerald-600';
 
 const ProfilePage = () => {
@@ -70,21 +57,11 @@ const ProfilePage = () => {
     setFeedback(null);
   };
 
-  const warning = expiryWarning(profile);
-
   return (
     <main className="p-4 sm:p-6 lg:p-8 space-y-6 flex-1 max-w-4xl">
       <PageHeader bold title="Storekeeper Profile" subtitle="Manage your account information and security settings." />
 
-      {warning && (
-        <div role="alert" className="flex items-start gap-3 p-4 rounded-2xl bg-red-50 border border-red-200 text-red-700">
-          <AlertTriangle className="w-5 h-5 shrink-0 mt-0.5" />
-          <div className="space-y-1">
-            <p className="text-sm font-bold">{warning}</p>
-            <p className="text-xs font-semibold text-red-600">Please contact the administrator to extend your account.</p>
-          </div>
-        </div>
-      )}
+      <AccountExpiryWarning profile={profile} />
 
       <div className="card-hover bg-white p-6 rounded-2xl border border-slate-200/80 shadow-sm space-y-6">
         <div className="flex items-center gap-4 pb-6 border-b border-slate-100">
