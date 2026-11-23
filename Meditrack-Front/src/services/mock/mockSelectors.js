@@ -305,19 +305,19 @@ const canSee = (user, alert) => alert.userId === null || user.role === ROLES.ADM
 
 // The priority order (decision 24, BACKEND_HANDOFF.md 4.6; backend: Notification::priority):
 //   1 expired batch     oldest expiry date first
-//   2 out of stock      newest first
-//   3 expiring soon     nearest expiry date first
+//   2 expiring soon     nearest expiry date first
+//   3 out of stock      newest first
 //   4 low stock         newest first
 //   5 account last day, 6 account expiring     fewest days left first
 // Equal alerts: newest first.
 const ALERT_RANKS = {
-  [NOTIFICATION_TYPES.OUT_OF_STOCK]: 2,
+  [NOTIFICATION_TYPES.OUT_OF_STOCK]: 3,
   [NOTIFICATION_TYPES.LOW_STOCK]: 4,
   [NOTIFICATION_TYPES.ACCOUNT_EXPIRES_TODAY]: 5,
   [NOTIFICATION_TYPES.ACCOUNT_EXPIRING]: 6,
 };
 const alertRank = (alert) => {
-  if (alert.type === NOTIFICATION_TYPES.EXPIRING) return alert.expiryStatus === EXPIRY_STATUS.EXPIRED ? 1 : 3;
+  if (alert.type === NOTIFICATION_TYPES.EXPIRING) return alert.expiryStatus === EXPIRY_STATUS.EXPIRED ? 1 : 2;
   return ALERT_RANKS[alert.type];
 };
 const newestFirst = (a, b) => b.createdAt.localeCompare(a.createdAt);

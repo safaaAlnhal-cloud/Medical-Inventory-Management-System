@@ -105,8 +105,8 @@ class Notification extends Model
      * The priority order (decision 24, BACKEND_HANDOFF.md 4.6), as a value to sort on, smallest
      * first:
      *   1 expired batch        oldest expiry date first
-     *   2 out_of_stock         newest first
-     *   3 expiring soon        nearest expiry date first
+     *   2 expiring soon        nearest expiry date first
+     *   3 out_of_stock         newest first
      *   4 low_stock            newest first
      *   5 account last day, 6 account expiring     fewest days left first
      * Equal alerts: newest first, then the highest id.
@@ -116,10 +116,10 @@ class Notification extends Model
         $newest = -$this->first_seen_at->getTimestamp();
         [$rank, $within] = match ($this->type) {
             NotificationType::Expiring => [
-                $this->expiryStatus() === ExpiryStatus::Expired ? 1 : 3,
+                $this->expiryStatus() === ExpiryStatus::Expired ? 1 : 2,
                 $this->batch->expiry_date->toDateString(),
             ],
-            NotificationType::OutOfStock => [2, $newest],
+            NotificationType::OutOfStock => [3, $newest],
             NotificationType::LowStock => [4, $newest],
             NotificationType::AccountExpiresToday => [5, $this->daysLeft()],
             NotificationType::AccountExpiring => [6, $this->daysLeft()],

@@ -1225,15 +1225,15 @@ included; only the order changes. `GET /notifications` and `/dashboard/alerts` r
 | Rank | Alert | Within the rank |
 |---|---|---|
 | 1 | Expired batch (`expiring` with `expiryStatus: "expired"`) | Oldest expiry date first |
-| 2 | `out_of_stock` | Newest first |
-| 3 | Expiring soon (`expiring` with `expiryStatus: "expiring_soon"`) | Nearest expiry date first |
+| 2 | Expiring soon (`expiring` with `expiryStatus: "expiring_soon"`) | Nearest expiry date first |
+| 3 | `out_of_stock` | Newest first |
 | 4 | `low_stock` | Newest first |
 | 5 | `account_expires_today`, then `account_expiring` | Fewest days left first |
 
 Equal alerts (same rank and the same date or days left) are newest first.
 
-**Decided:** account alerts come last, after every stock alert, and
-`/dashboard/critical-inventory` uses the same ranks 1–4. **Implemented:** the Notifications page
+**Decided:** account alerts come last, after every stock alert. **Changed 2026-11-22:** every
+expiry alert (expired, then expiring soon) comes before out of stock, then low stock. **Implemented:** the Notifications page
 keeps its tabs and adds an "Accounts" tab for the two account types. The mock returns the same
 order and applies the same audience rule.
 - An alert's `id` is `<type>-<itemId, batchId or userId>` (e.g. `low_stock-4`, `expiring-9`,
@@ -1249,7 +1249,7 @@ order and applies the same audience rule.
 | GET | `/dashboard/summary` | Any signed-in user | `{ "totalItems": 6, "availableCount": 3, "lowStockCount": 2, "outOfStockCount": 1, "expiringSoonCount": 2, "expiredCount": 0 }` |
 | GET | `/dashboard/stock-movement?months=6` | Admin | `[{ "month": "2026-05", "incoming": 1240.5, "outgoing": 610, "disposed": 0 }]` (money), oldest month first, one entry per month even when zero |
 | GET | `/dashboard/critical-inventory?search=` | Any signed-in user (not used by the UI, not built) | `[{ "id": "low_stock-2", "itemId": 2, "categoryId": 1, "quantity": 15, "status": "low_stock" }]` |
-| GET | `/dashboard/alerts?search=&limit=3` | Any signed-in user | The first `limit` (1–50, default 3) alerts of `GET /notifications`, in the priority order of section 4.6 (expired, out of stock, expiring soon, low stock, accounts). Both dashboards show the first 5 |
+| GET | `/dashboard/alerts?search=&limit=3` | Any signed-in user | The first `limit` (1–50, default 3) alerts of `GET /notifications`, in the priority order of section 4.6 (expired, expiring soon, out of stock, low stock, accounts). Both dashboards show the first 5 |
 | GET | `/dashboard/recent-transactions?search=&limit=5` | Any signed-in user | Active `Transaction[]` of both types, newest first |
 
 - Every summary value is a **number of active items**, so nothing adds boxes to bottles.
@@ -1598,7 +1598,7 @@ nothing is built for them. Rows 19–27 come from the supervisor's review; 19–
 | 21 | How are manufacturers added? | Decided | From the Incoming form with autocomplete; a new name creates one; no management page; spellings that differ only in case, spaces, dots, commas or other punctuation are the same manufacturer |
 | 22 | Item details, archive reason and history | Decided | Six optional item fields (active ingredient, strength, dosage form, storage conditions, uses, description); manufacturing date and optional supplier on the batch; archiving requires a reason; every archiving and restore is kept in an archive history |
 | 23 | User expiry | Decided | Account expiry (not password expiry), storekeepers only, date set by the admin; alerts 7 days before and on the last day, to the admin and the storekeeper; expired accounts cannot sign in and their tokens get `401`; no extension request |
-| 24 | Alert priority | Decided | Every alert type kept; order: expired, out of stock, expiring soon, low stock, then account alerts; the same ranks in Critical Inventory |
+| 24 | Alert priority | Decided | Every alert type kept; order: expired, expiring soon, out of stock, low stock, then account alerts (changed 2026-11-22: every expiry alert first, then out of stock, then low stock) |
 | 25 | Report export | Decided | PDF, Excel and CSV, all built by the backend (the page shows PDF and Excel; CSV is hidden but still supported by the API), no row limit, with the report information in the file; each successful export logged in `report_exports`; no page for the log yet |
 | 26 | Insurance support | Deferred | Nothing is built: no field, table or endpoint |
 | 27 | Changing one's own email from Profile, and email confirmation | Deferred | Waits for the team's discussion; nothing is built |
@@ -1610,7 +1610,7 @@ nothing is built for them. Rows 19–27 come from the supervisor's review; 19–
 | Account expiry | `accountExpiresOn` is the last working day; the account stops the next day |
 | Account expiry | No past date; to stop an account now, set it `inactive` |
 | Account expiry | No alert after expiry; the Users page shows "Expired" |
-| Alerts | Account alerts come last; `/dashboard/critical-inventory` uses the same ranks |
+| Alerts | Expiry alerts first (expired, then expiring soon), then out of stock, then low stock; account alerts come last |
 | Manufacturers | Case, spaces, dots, commas and other punctuation are ignored when matching names |
 | Item details | `dosageForm` is free text |
 | Barcodes | Linking a barcode always needs its manufacturer; barcodes are managed by their own endpoints, not the item form |
