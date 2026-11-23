@@ -26,16 +26,17 @@ class ApiErrorFormatTest extends TestCase
         Route::get('/api/_test/forbidden', fn () => abort(403));
     }
 
+    // /api/categories stands for any route in the signed-in group of routes/api.php.
     public function test_401_without_a_token(): void
     {
-        $this->getJson('/api/user')
+        $this->getJson('/api/categories')
             ->assertStatus(401)
             ->assertExactJson(['message' => 'Unauthenticated.']);
     }
 
     public function test_a_valid_token_reaches_the_route(): void
     {
-        $this->actingAsStorekeeper()->getJson('/api/user')->assertOk()->assertJsonStructure(['id', 'email', 'role']);
+        $this->actingAsStorekeeper()->getJson('/api/categories')->assertOk();
     }
 
     public function test_422_has_one_message_per_field(): void
