@@ -139,11 +139,14 @@ const isValidDate = (value) => {
   return date !== null && toISODate(date) === value;
 };
 
-// Quantity: any number above zero. The forms only offer whole numbers; whether fractional
-// quantities must be rejected is a backend decision (see BACKEND_HANDOFF.md).
+// Quantity: a whole number from 1 to 1,000,000, with the backend's messages (decision 3).
+const MAX_QUANTITY = 1000000;
 const requireQuantity = (value) => {
-  const quantity = value === '' || value == null ? NaN : Number(value);
-  if (!Number.isFinite(quantity) || quantity <= 0) throw invalid('Quantity must be greater than zero.', 422, 'quantity');
+  if (value === '' || value == null) throw invalid('Quantity is required.', 422, 'quantity');
+  const quantity = Number(value);
+  if (!Number.isInteger(quantity)) throw invalid('Quantity must be a whole number.', 422, 'quantity');
+  if (quantity <= 0) throw invalid('Quantity must be greater than zero.', 422, 'quantity');
+  if (quantity > MAX_QUANTITY) throw invalid('Quantity may not be more than 1,000,000.', 422, 'quantity');
   return quantity;
 };
 
@@ -168,9 +171,15 @@ const assertNotExpiredOnArrival = (expiryDate, date) => {
   }
 };
 
+// Unit cost: zero or more, at most 99,999,999 with 4 decimal places, as the backend (decision 6).
+const MAX_UNIT_COST = 99999999;
 const requireUnitCost = (value) => {
-  const unitCost = value === '' || value == null ? NaN : Number(value);
-  if (!Number.isFinite(unitCost) || unitCost < 0) throw invalid('Unit cost must be zero or more.', 422, 'unitCost');
+  if (value === '' || value == null) throw invalid('Unit cost is required.', 422, 'unitCost');
+  const unitCost = Number(value);
+  if (!Number.isFinite(unitCost)) throw invalid('Unit cost must be a number.', 422, 'unitCost');
+  if (unitCost < 0) throw invalid('Unit cost must be zero or more.', 422, 'unitCost');
+  if (unitCost > MAX_UNIT_COST) throw invalid('Unit cost is too large.', 422, 'unitCost');
+  if (!/^-?\d+(\.\d{1,4})?$/.test(String(value).trim())) throw invalid('Unit cost may have at most 4 decimal places.', 422, 'unitCost');
   return unitCost;
 };
 

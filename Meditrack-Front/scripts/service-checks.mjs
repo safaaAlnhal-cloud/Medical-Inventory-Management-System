@@ -512,6 +512,21 @@ try {
     await rejection(transactions.updateTransactionApi(old.id, { ...edit, date: tomorrow }), 422, 'date');
   });
 
+  check('quantity and unit cost: the same limits and messages as the backend', async () => {
+    await signIn(STOREKEEPER);
+    const fraction = await rejection(transactions.createIncomingTransactionApi(incoming({ batchNumber: 'QTY-1', quantity: 2.5 })), 422, 'quantity');
+    assert.equal(fraction.message, 'Quantity must be a whole number.');
+    await rejection(transactions.createOutgoingTransactionApi({ itemId: 2, batchId: 9, quantity: 0.5, date: today, recipient: 'Ward' }), 422, 'quantity');
+    await rejection(transactions.createIncomingTransactionApi(incoming({ batchNumber: 'QTY-2', quantity: 0 })), 422, 'quantity');
+    await rejection(transactions.createIncomingTransactionApi(incoming({ batchNumber: 'QTY-3', quantity: 1000001 })), 422, 'quantity');
+    assert.equal((await transactions.createIncomingTransactionApi(incoming({ batchNumber: 'QTY-4', quantity: '7' }))).quantity, 7);
+
+    const decimals = await rejection(transactions.createIncomingTransactionApi(incoming({ batchNumber: 'QTY-5', unitCost: 1.23456 })), 422, 'unitCost');
+    assert.equal(decimals.message, 'Unit cost may have at most 4 decimal places.');
+    await rejection(transactions.createIncomingTransactionApi(incoming({ batchNumber: 'QTY-6', unitCost: 100000000 })), 422, 'unitCost');
+    assert.equal((await transactions.createIncomingTransactionApi(incoming({ batchNumber: 'QTY-7', unitCost: 1.2345 }))).unitCost, 1.2345);
+  });
+
   check('incoming: supplier and manufacturer are optional; a manufacturer is found by any spelling or created once', async () => {
     await signIn(STOREKEEPER);
     const count = async () => (await manufacturers.getManufacturersApi()).length;
