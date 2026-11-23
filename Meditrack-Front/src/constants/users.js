@@ -31,3 +31,7 @@ export const isAccountExpired = (user, today) =>
   user.role !== ROLES.ADMIN && Boolean(user.accountExpiresOn) && today > user.accountExpiresOn;
 
 export const accountExpiredMessage = (user) => `This account expired on ${user.accountExpiresOn}. Please contact an administrator.`;
+
+// An account warns its owner and the admin from this many days before accountExpiresOn
+// (backend: NotificationService::ACCOUNT_WARNING_DAYS).
+export const ACCOUNT_WARNING_DAYS = 7;
