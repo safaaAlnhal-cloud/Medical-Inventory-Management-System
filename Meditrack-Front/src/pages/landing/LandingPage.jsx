@@ -8,9 +8,6 @@ import {
   CalendarClock,
   Check,
   Calculator,
-  Mail,
-  MapPin,
-  Phone,
   ShieldCheck,
   Sparkles,
   Stethoscope,
@@ -37,36 +34,35 @@ const NAV = [
   { label: "About Us", href: "#about" },
   { label: "Services", href: "#services" },
   { label: "How It Works", href: "#how" },
-  { label: "Contact", href: "#contact" },
 ];
 
 const SERVICES = [
   { icon: Activity, title: "Real-time Inventory Tracking", body: "Every box, bottle and batch reconciled the moment it moves." },
-  { icon: CalendarClock, title: "Expiration Alerts", body: "Know 30, 60 and 90 days ahead of every expiry date." },
+  { icon: CalendarClock, title: "Expiration Alerts", body: "A warning 30 days before a batch expires, and an alert once it has expired." },
   { icon: Calculator, title: "Average Cost Calculation", body: "Weighted average cost per unit across all received batches." },
   { icon: Bell, title: "Stock Shortage Alerts", body: "Threshold-based warnings before a critical item runs out." },
-  { icon: BarChart3, title: "Comprehensive Reports", body: "Movement, consumption and waste reports ready to export." },
+  { icon: BarChart3, title: "Comprehensive Reports", body: "Stock summary, critical items, movement history and inventory value, ready to export as PDF or Excel." },
   { icon: UserCog, title: "Role-Based Permissions", body: "Separate admin oversight from day-to-day storekeeper work." },
 ];
 
 const SERVE = [
-  { n: "01", title: "Hospitals & Medical Centers", body: "Multi-department stock control with full audit trails." },
-  { n: "02", title: "Private Clinics & Labs", body: "Lightweight tracking for reagents, consumables and meds." },
-  { n: "03", title: "Pharmacies & Suppliers", body: "Batch, expiry and supplier records in one clean ledger." },
+  { n: "01", title: "Hospitals & Medical Centers", body: "Central stock control with a full history of every transaction and edit." },
+  { n: "02", title: "Private Clinics & Labs", body: "Simple tracking for medicines, consumables and supplies." },
+  { n: "03", title: "Pharmacies & Medical Stores", body: "Batches, expiry dates and manufacturers in one clean ledger." },
 ];
 
 const STEPS = [
-  { icon: Truck, step: "Step 1", title: "Receive Shipment", body: "Log the delivery, batch numbers and expiry dates." },
-  { icon: LogIn, step: "Step 2", title: "Log into System", body: "Sign in as admin or storekeeper to your dashboard." },
+  { icon: LogIn, step: "Step 1", title: "Log into System", body: "Sign in as admin or storekeeper to your dashboard." },
+  { icon: Truck, step: "Step 2", title: "Receive Shipment", body: "Log the delivery, manufacturer, batch and expiry date." },
   { icon: Activity, step: "Step 3", title: "Track & Monitor", body: "Watch levels, thresholds and expiries in real time." },
   { icon: ClipboardList, step: "Step 4", title: "Dispense & Report", body: "Record dispatches and export clear reports." },
 ];
 
 const STATS = [
-  { value: "+50", label: "Hospitals & Clinics" },
-  { value: "+10,000", label: "Medical Items Tracked" },
-  { value: "99.9%", label: "System Accuracy" },
-  { value: "24/7", label: "Technical Support" },
+  { value: "4", label: "Ready-made Reports" },
+  { value: "2", label: "User Roles" },
+  { value: "2", label: "Export Formats (PDF & Excel)" },
+  { value: "30", label: "Days of Expiry Warning" },
 ];
 
 const BADGES = [
@@ -148,8 +144,8 @@ const LandingPage = () => {
             </p>
             <ul className="mt-7 space-y-4">
               {[
-                { t: "Smart Tracking", b: "Batch-level visibility across every store, room and rack." },
-                { t: "Zero Waste", b: "Expiry-first dispensing guidance that protects your budget." },
+                { t: "Smart Tracking", b: "Batch-level visibility of quantities, expiry dates and manufacturers." },
+                { t: "Less Waste", b: "Expiry-first dispensing guidance that protects your budget." },
               ].map((f) => (
                 <li key={f.t} className="flex gap-3">
                   <span className="mt-0.5 grid size-6 shrink-0 place-items-center rounded-full bg-accent/15">
@@ -254,18 +250,17 @@ const LandingPage = () => {
       </section>
 
       {/* Footer */}
-      <footer id="contact" className="bg-primary-deep text-primary-foreground">
-        <div className="mx-auto grid max-w-6xl gap-10 px-5 py-16 md:grid-cols-3">
+      <footer className="bg-primary-deep text-primary-foreground">
+        <div className="mx-auto flex max-w-6xl flex-col gap-8 px-5 py-12 md:flex-row md:items-center md:justify-between">
           <div>
             <Logo tone="light" />
-            <p className="mt-4 max-w-xs text-sm text-primary-foreground/70">
+            <p className="mt-4 max-w-sm text-sm text-primary-foreground/70">
               MediTrack helps healthcare teams keep every medication and supply accounted for — from
               delivery to dispensing.
             </p>
           </div>
-          <div>
-            <h3 className="text-sm font-semibold uppercase tracking-[0.18em] text-accent">Quick Links</h3>
-            <ul className="mt-4 space-y-2.5 text-sm text-primary-foreground/75">
+          <nav aria-label="Footer">
+            <ul className="flex flex-wrap gap-x-7 gap-y-3 text-sm font-medium text-primary-foreground/75">
               {NAV.map((n) => (
                 <li key={n.label}>
                   <a href={n.href} className="transition-colors hover:text-accent">
@@ -274,21 +269,7 @@ const LandingPage = () => {
                 </li>
               ))}
             </ul>
-          </div>
-          <div>
-            <h3 className="text-sm font-semibold uppercase tracking-[0.18em] text-accent">Contact</h3>
-            <ul className="mt-4 space-y-3 text-sm text-primary-foreground/75">
-              <li className="flex items-center gap-2.5">
-                <MapPin className="size-4 text-accent" /> Hebron, Palestine
-              </li>
-              <li className="flex items-center gap-2.5">
-                <Mail className="size-4 text-accent" /> support@meditrack.com
-              </li>
-              <li className="flex items-center gap-2.5">
-                <Phone className="size-4 text-accent" /> +970 59 000 0000
-              </li>
-            </ul>
-          </div>
+          </nav>
         </div>
         <div className="border-t border-primary-foreground/10 py-6 text-center text-xs text-primary-foreground/60">
           © 2026 MediTrack. All rights reserved.
