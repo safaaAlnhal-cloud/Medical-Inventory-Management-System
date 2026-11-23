@@ -1,6 +1,7 @@
 import React, { useMemo } from 'react';
 import { AlertTriangle, CalendarClock, CalendarX, CheckCircle2 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
+import { MyAccountExpiryWarning } from '../../components/common/AccountExpiryWarning';
 import { ErrorState } from '../../components/common/DataState';
 import { ImportantAlertsPanel, RecentTransactionsPanel } from '../../components/dashboard/ActivityPanels';
 import DashboardHero from '../../components/dashboard/DashboardHero';
@@ -95,6 +96,9 @@ const StorekeeperDashboard = () => {
         title={`Welcome back, ${user?.name || 'Storekeeper'}`}
         subtitle="Let's keep the inventory up to date."
       />
+
+      {/* A red warning while the account expires within 7 days, as on the Profile page. */}
+      <MyAccountExpiryWarning />
 
       {error && <ErrorState message={error} onRetry={reload} />}
 
