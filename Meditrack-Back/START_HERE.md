@@ -120,4 +120,4 @@ git push -u origin a/incoming
 ## 6. أشياء مؤقتة يجب ألا تُنسى (المرحلة 6)
 
 - ~~`GET /api/user` في `routes/api.php`~~: حُذف في المرحلة 6، و`/auth/me` يقوم بعمله.
-- تحديثات Symfony الأمنية (`composer audit`).
+- ~~تحديثات Symfony الأمنية~~: حُدّثت في المرحلة 6 (Laravel 13.43، وSymfony 8.1.11)، و`composer audit` نظيف.
