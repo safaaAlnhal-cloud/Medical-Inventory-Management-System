@@ -139,17 +139,22 @@ const isValidDate = (value) => {
   return date !== null && toISODate(date) === value;
 };
 
-// Quantity: any number above zero. The forms only offer whole numbers; whether fractional
-// quantities must be rejected is a backend decision (see BACKEND_HANDOFF.md).
+// Quantity: a whole number from 1 to 1,000,000, with the backend's messages (decision 3).
+const MAX_QUANTITY = 1000000;
 const requireQuantity = (value) => {
-  const quantity = value === '' || value == null ? NaN : Number(value);
-  if (!Number.isFinite(quantity) || quantity <= 0) throw invalid('Quantity must be greater than zero.', 422, 'quantity');
+  if (value === '' || value == null) throw invalid('Quantity is required.', 422, 'quantity');
+  const quantity = Number(value);
+  if (!Number.isInteger(quantity)) throw invalid('Quantity must be a whole number.', 422, 'quantity');
+  if (quantity <= 0) throw invalid('Quantity must be greater than zero.', 422, 'quantity');
+  if (quantity > MAX_QUANTITY) throw invalid('Quantity may not be more than 1,000,000.', 422, 'quantity');
   return quantity;
 };
 
-const requireDate = (value) => {
+// `label` names the date in the future-date message, as the backend does ("Disposal date...").
+const requireDate = (value, label = 'Transaction') => {
   if (!value) throw invalid('Transaction date is required.', 422, 'date');
   if (!isValidDate(value)) throw invalid('Transaction date is not a valid date.', 422, 'date');
+  if (value > toISODate()) throw invalid(`${label} date cannot be in the future.`, 422, 'date');
   return value;
 };
 
@@ -159,9 +164,22 @@ const optionalExpiryDate = (value) => {
   return value;
 };
 
+// A batch that had already expired when it arrived cannot be received.
+const assertNotExpiredOnArrival = (expiryDate, date) => {
+  if (expiryDate && expiryDate < date) {
+    throw invalid('Expiry date cannot be before the transaction date: expired stock cannot be received.', 422, 'expiryDate');
+  }
+};
+
+// Unit cost: zero or more, at most 99,999,999 with 4 decimal places, as the backend (decision 6).
+const MAX_UNIT_COST = 99999999;
 const requireUnitCost = (value) => {
-  const unitCost = value === '' || value == null ? NaN : Number(value);
-  if (!Number.isFinite(unitCost) || unitCost < 0) throw invalid('Unit cost must be zero or more.', 422, 'unitCost');
+  if (value === '' || value == null) throw invalid('Unit cost is required.', 422, 'unitCost');
+  const unitCost = Number(value);
+  if (!Number.isFinite(unitCost)) throw invalid('Unit cost must be a number.', 422, 'unitCost');
+  if (unitCost < 0) throw invalid('Unit cost must be zero or more.', 422, 'unitCost');
+  if (unitCost > MAX_UNIT_COST) throw invalid('Unit cost is too large.', 422, 'unitCost');
+  if (!/^-?\d+(\.\d{1,4})?$/.test(String(value).trim())) throw invalid('Unit cost may have at most 4 decimal places.', 422, 'unitCost');
   return unitCost;
 };
 
@@ -270,7 +288,7 @@ const assertBatchNumberFree = (db, itemId, manufacturer, batchNumber, exceptBatc
 const createMock = (db, type, payload, reason = OUTGOING_REASONS.ISSUE) => {
   const item = requireActiveItem(db, payload.itemId);
   const quantity = requireQuantity(payload.quantity);
-  const date = requireDate(payload.date);
+  const date = requireDate(payload.date, reason === OUTGOING_REASONS.EXPIRED_DISPOSAL ? 'Disposal' : 'Transaction');
 
   const base = {
     id: nextId(db.transactions),
@@ -292,6 +310,7 @@ const createMock = (db, type, payload, reason = OUTGOING_REASONS.ISSUE) => {
     const batchNumber = requireBatchNumber(payload.batchNumber);
     const unitCost = requireUnitCost(payload.unitCost);
     const expiryDate = optionalExpiryDate(payload.expiryDate);
+    assertNotExpiredOnArrival(expiryDate, date);
     const supplier = optionalName(payload.supplier, 'supplier', 'Supplier');
     const manufacturer = findManufacturer(db, payload.manufacturer);
     const manufacturingDate = optionalManufacturingDate(payload.manufacturingDate, date, expiryDate);
@@ -435,6 +454,10 @@ const updateMock = (db, id, payload) => {
     const batchNumber = requireBatchNumber(payload.batchNumber);
     const unitCost = requireUnitCost(payload.unitCost);
     const expiryDate = optionalExpiryDate(payload.expiryDate);
+    // Checked only when a date changes, or it used to be outgoing, as on the backend: an old
+    // receipt whose batch has expired since must still be correctable.
+    const oldExpiryDate = wasIncoming ? (db.batches.find((candidate) => candidate.id === transaction.batchId)?.expiryDate ?? null) : null;
+    if (!wasIncoming || transaction.date !== date || oldExpiryDate !== expiryDate) assertNotExpiredOnArrival(expiryDate, date);
     const supplier = optionalName(payload.supplier, 'supplier', 'Supplier');
     const manufacturer = findManufacturer(db, payload.manufacturer);
     const manufacturingDate = optionalManufacturingDate(payload.manufacturingDate, date, expiryDate);

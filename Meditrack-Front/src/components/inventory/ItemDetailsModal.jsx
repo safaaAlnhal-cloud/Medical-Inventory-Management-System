@@ -177,10 +177,10 @@ const ItemDetailsModal = ({ item, categoryName, manufacturers, onClose, onDispos
             // noValidate: the browser's own bubbles are off, so the messages come from the server
             // (or the mock), under the field they are about. `required` stays for screen readers.
             <form noValidate onSubmit={handleLinkBarcode} className="grid grid-cols-1 sm:grid-cols-[1fr_1fr_auto] gap-2 items-start">
-              <FormField label="Barcode" error={barcodeErrors.barcode}>
+              <FormField label="Barcode" required error={barcodeErrors.barcode}>
                 <input type="text" required maxLength={64} placeholder="Scan or type the barcode" value={barcodeForm.barcode} onChange={(e) => setBarcodeForm({ ...barcodeForm, barcode: e.target.value })} className={inputClassName} />
               </FormField>
-              <FormField label="Manufacturer" error={barcodeErrors.manufacturer}>
+              <FormField label="Manufacturer" required error={barcodeErrors.manufacturer}>
                 <input type="text" required maxLength={150} list={listId} placeholder="e.g. PharmaCo" value={barcodeForm.manufacturer} onChange={(e) => setBarcodeForm({ ...barcodeForm, manufacturer: e.target.value })} className={inputClassName} />
               </FormField>
               {/* The browser suggests the existing names; a new name creates the manufacturer. */}

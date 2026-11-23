@@ -194,16 +194,16 @@ const UsersPage = () => {
           {/* noValidate: every message comes from the server (or the mock), under its field. */}
           <form noValidate onSubmit={handleAddUser} className="space-y-4">
             {formError && <InlineAlert>{formError}</InlineAlert>}
-            <FormField label="Full Name" error={fieldErrors.name}>
+            <FormField label="Full Name" required error={fieldErrors.name}>
               <input type="text" required maxLength={255} placeholder="e.g. Ahmad Khaled" value={addForm.name} onChange={(e) => setAddForm({ ...addForm, name: e.target.value })} className={inputClassName} />
             </FormField>
-            <FormField label="Email Address" error={fieldErrors.email}>
+            <FormField label="Email Address" required error={fieldErrors.email}>
               <input type="email" required maxLength={255} placeholder="e.g. ahmad@medcenter.ps" value={addForm.email} onChange={(e) => setAddForm({ ...addForm, email: e.target.value })} className={inputClassName} />
             </FormField>
-            <FormField label={`Password (min. ${MIN_PASSWORD_LENGTH} characters)`} error={fieldErrors.password}>
+            <FormField label={`Password (min. ${MIN_PASSWORD_LENGTH} characters)`} required error={fieldErrors.password}>
               <input type="password" required minLength={MIN_PASSWORD_LENGTH} maxLength={255} autoComplete="new-password" placeholder="••••••••" value={addForm.password} onChange={(e) => setAddForm({ ...addForm, password: e.target.value })} className={inputClassName} />
             </FormField>
-            <FormField label="Account Expires On (optional, last working day)" error={fieldErrors.accountExpiresOn}>
+            <FormField label="Account Expires On (last working day)" optional error={fieldErrors.accountExpiresOn}>
               <input type="date" min={toISODate()} value={addForm.accountExpiresOn} onChange={(e) => setAddForm({ ...addForm, accountExpiresOn: e.target.value })} className={inputClassName} />
             </FormField>
             <div className="pt-3 flex justify-end gap-2">
@@ -276,13 +276,13 @@ const UsersPage = () => {
           {/* noValidate: every message comes from the server (or the mock), under its field. */}
           <form noValidate onSubmit={handleSaveEdit} className="space-y-4">
             {formError && <InlineAlert>{formError}</InlineAlert>}
-            <FormField label="Full Name" error={fieldErrors.name}>
+            <FormField label="Full Name" required error={fieldErrors.name}>
               <input type="text" required maxLength={255} value={editForm.name} onChange={(e) => setEditForm({ ...editForm, name: e.target.value })} className={inputClassName} />
             </FormField>
-            <FormField label="Email Address" error={fieldErrors.email}>
+            <FormField label="Email Address" required error={fieldErrors.email}>
               <input type="email" required maxLength={255} value={editForm.email} onChange={(e) => setEditForm({ ...editForm, email: e.target.value })} className={inputClassName} />
             </FormField>
-            <FormField label="Account Status" error={fieldErrors.status}>
+            <FormField label="Account Status" required error={fieldErrors.status}>
               {/* An admin cannot deactivate the account they are signed in with. */}
               <select value={editForm.status} disabled={sameId(editingUser.id, currentUserId)} onChange={(e) => setEditForm({ ...editForm, status: e.target.value })} className={`${inputClassName} disabled:opacity-60 disabled:cursor-not-allowed`}>
                 <option value={USER_STATUS.ACTIVE}>{USER_STATUS_LABELS.active}</option>
@@ -291,14 +291,14 @@ const UsersPage = () => {
             </FormField>
             {/* Only storekeeper accounts can expire. Empty: the account never expires. */}
             {editingUser.role !== ROLES.ADMIN && (
-              <FormField label="Account Expires On (optional, last working day)" error={fieldErrors.accountExpiresOn}>
+              <FormField label="Account Expires On (last working day)" optional error={fieldErrors.accountExpiresOn}>
                 <input type="date" min={toISODate()} value={editForm.accountExpiresOn} onChange={(e) => setEditForm({ ...editForm, accountExpiresOn: e.target.value })} className={inputClassName} />
               </FormField>
             )}
             {/* How a forgotten password is recovered: an admin sets a new one here. Admins change
                 their own password in Settings, where the current password is required. */}
             {!sameId(editingUser.id, currentUserId) && (
-              <FormField label={`Set New Password (optional, min. ${MIN_PASSWORD_LENGTH} characters)`} error={fieldErrors.newPassword}>
+              <FormField label={`Set New Password (min. ${MIN_PASSWORD_LENGTH} characters)`} optional error={fieldErrors.newPassword}>
                 <input type="password" minLength={MIN_PASSWORD_LENGTH} maxLength={255} autoComplete="new-password" placeholder="Leave empty to keep the current password" value={editForm.newPassword} onChange={(e) => setEditForm({ ...editForm, newPassword: e.target.value })} className={inputClassName} />
               </FormField>
             )}

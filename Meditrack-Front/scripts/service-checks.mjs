@@ -240,8 +240,13 @@ try {
     assert.equal((await auth.loginApi({ email: STOREKEEPER.email, password: 'brand-new-pass' })).user.id, 2);
   });
 
-  check('profile: a phone number longer than 30 characters is a 422', async () => {
+  check('profile: only the admin changes their own details; a phone number longer than 30 characters is a 422', async () => {
     await signIn(STOREKEEPER);
+    const mine = await profile.getProfileApi();
+    await rejection(profile.updateProfileApi({ name: 'Someone Else', email: mine.email, phone: '' }), 403);
+    assert.equal((await profile.getProfileApi()).name, mine.name);
+
+    await signIn(ADMIN);
     const me = await profile.getProfileApi();
     await rejection(profile.updateProfileApi({ name: me.name, email: me.email, phone: '1'.repeat(31) }), 422, 'phone');
     assert.equal((await profile.updateProfileApi({ name: me.name, email: me.email, phone: ' 0599 ' })).phone, '0599');
@@ -489,6 +494,42 @@ try {
     await rejection(transactions.createIncomingTransactionApi(incoming({ batchNumber: 'am-201', manufacturer: 'MEDICA labs' })), 409, 'batchNumber');
     assert.equal((await inventory.getBatchLookupApi()).length, batchesBefore, 'no batch was created by a rejected request');
     assert.equal((await findItem(2)).quantity, stockBefore);
+  });
+
+  // Found by comparing the mock with the API in phase 6: the mock accepted both.
+  check('dates: no transaction in the future, and no batch received already expired (an old receipt can still be corrected)', async () => {
+    await signIn(STOREKEEPER);
+    const tomorrow = isoDateFromNow(1);
+    await rejection(transactions.createIncomingTransactionApi(incoming({ date: tomorrow })), 422, 'date');
+    await rejection(transactions.createOutgoingTransactionApi({ itemId: 2, batchId: 9, quantity: 1, date: tomorrow, recipient: 'Ward' }), 422, 'date');
+    const disposal = await rejection(transactions.createDisposalTransactionApi({ itemId: 2, batchId: 9, quantity: 1, date: tomorrow }), 422, 'date');
+    assert.match(disposal.message, /^Disposal date cannot be in the future/);
+
+    await rejection(transactions.createIncomingTransactionApi(incoming({ expiryDate: isoDateFromNow(-1) })), 422, 'expiryDate');
+    assert.ok(await transactions.createIncomingTransactionApi(incoming({ batchNumber: 'SAME-DAY', expiryDate: today })), 'a batch expiring on the day it arrives can be received');
+
+    // Received 30 days ago with 10 days to go; it has expired since. Changing only the quantity is allowed,
+    // moving the date past the expiry is not.
+    const old = await transactions.createIncomingTransactionApi(incoming({ batchNumber: 'OLD-1', date: isoDateFromNow(-30), expiryDate: isoDateFromNow(-20) }));
+    const edit = { type: 'incoming', itemId: 2, quantity: 12, date: old.date, batchNumber: 'OLD-1', unitCost: 5, expiryDate: old.expiryDate, supplier: 'Check Supplier', manufacturer: null, manufacturingDate: null };
+    assert.equal((await transactions.updateTransactionApi(old.id, edit)).quantity, 12);
+    await rejection(transactions.updateTransactionApi(old.id, { ...edit, date: isoDateFromNow(-10) }), 422, 'expiryDate');
+    await rejection(transactions.updateTransactionApi(old.id, { ...edit, date: tomorrow }), 422, 'date');
+  });
+
+  check('quantity and unit cost: the same limits and messages as the backend', async () => {
+    await signIn(STOREKEEPER);
+    const fraction = await rejection(transactions.createIncomingTransactionApi(incoming({ batchNumber: 'QTY-1', quantity: 2.5 })), 422, 'quantity');
+    assert.equal(fraction.message, 'Quantity must be a whole number.');
+    await rejection(transactions.createOutgoingTransactionApi({ itemId: 2, batchId: 9, quantity: 0.5, date: today, recipient: 'Ward' }), 422, 'quantity');
+    await rejection(transactions.createIncomingTransactionApi(incoming({ batchNumber: 'QTY-2', quantity: 0 })), 422, 'quantity');
+    await rejection(transactions.createIncomingTransactionApi(incoming({ batchNumber: 'QTY-3', quantity: 1000001 })), 422, 'quantity');
+    assert.equal((await transactions.createIncomingTransactionApi(incoming({ batchNumber: 'QTY-4', quantity: '7' }))).quantity, 7);
+
+    const decimals = await rejection(transactions.createIncomingTransactionApi(incoming({ batchNumber: 'QTY-5', unitCost: 1.23456 })), 422, 'unitCost');
+    assert.equal(decimals.message, 'Unit cost may have at most 4 decimal places.');
+    await rejection(transactions.createIncomingTransactionApi(incoming({ batchNumber: 'QTY-6', unitCost: 100000000 })), 422, 'unitCost');
+    assert.equal((await transactions.createIncomingTransactionApi(incoming({ batchNumber: 'QTY-7', unitCost: 1.2345 }))).unitCost, 1.2345);
   });
 
   check('incoming: supplier and manufacturer are optional; a manufacturer is found by any spelling or created once', async () => {

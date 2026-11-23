@@ -1,12 +1,11 @@
 <?php
 
 use App\Http\Middleware\EnsureAccountCanUseSystem;
-use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 
 /*
 | Every route here is served under the /api prefix (set in bootstrap/app.php), which matches the
-| frontend's VITE_API_BASE_URL, e.g. http://localhost:8000/api.
+| frontend's VITE_API_BASE_URL, e.g. http://127.0.0.1:8000/api.
 |
 | Each module has its own file in routes/api/, owned by one developer, so the two tracks never
 | edit the same route file. Add a route to your module's file, not to this one.
@@ -47,7 +46,4 @@ Route::middleware(['auth:sanctum', EnsureAccountCanUseSystem::class])->group(fun
     require __DIR__.'/api/manufacturers.php';
     require __DIR__.'/api/notifications.php';
     require __DIR__.'/api/exports.php';
-
-    // Temporary check route for the Sanctum setup. Removed in phase 6 (GET /auth/me replaces it).
-    Route::get('/user', fn (Request $request) => $request->user());
 });

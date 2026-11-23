@@ -12,13 +12,15 @@ class ProfileTest extends TestCase
 {
     use RefreshDatabase;
 
+    private User $sara;
+
     private User $omar;
 
     protected function setUp(): void
     {
         parent::setUp();
 
-        User::factory()->admin()->create(['email' => 'sara@medcenter.ps']);
+        $this->sara = User::factory()->admin()->create(['name' => 'Sara Ahmad', 'email' => 'sara@medcenter.ps']);
         $this->omar = User::factory()->create([
             'name' => 'Omar Saleh', 'email' => 'omar@medcenter.ps', 'password' => 'secret1',
         ]);
@@ -34,49 +36,62 @@ class ProfileTest extends TestCase
             ->assertJsonMissingPath('password');
     }
 
-    public function test_the_user_updates_their_name_email_and_phone(): void
+    public function test_the_admin_updates_their_name_email_and_phone(): void
+    {
+        $this->actingAsAdmin($this->sara);
+
+        $this->putJson('/api/profile', ['name' => '  Sara A. ', 'email' => 'Sara.A@MedCenter.ps', 'phone' => ' 0599 123 456 '])
+            ->assertOk()
+            ->assertJson(['name' => 'Sara A.', 'email' => 'sara.a@medcenter.ps', 'phone' => '0599 123 456']);
+
+        $this->putJson('/api/profile', ['name' => 'Sara A.', 'email' => 'sara.a@medcenter.ps', 'phone' => ''])
+            ->assertOk()
+            ->assertJsonPath('phone', '');
+        $this->assertNull($this->sara->fresh()->phone);
+    }
+
+    public function test_a_storekeeper_cannot_change_their_own_details(): void
     {
         $this->actingAsStorekeeper($this->omar);
 
-        $this->putJson('/api/profile', ['name' => '  Omar S. ', 'email' => 'Omar.S@MedCenter.ps', 'phone' => ' 0599 123 456 '])
-            ->assertOk()
-            ->assertJson(['name' => 'Omar S.', 'email' => 'omar.s@medcenter.ps', 'phone' => '0599 123 456']);
+        // Decision 12: only the admin changes a storekeeper's name, email or phone, on the Users page.
+        $this->putJson('/api/profile', ['name' => 'Someone Else', 'email' => 'other@medcenter.ps', 'phone' => '0599'])
+            ->assertForbidden();
 
-        $this->putJson('/api/profile', ['name' => 'Omar S.', 'email' => 'omar.s@medcenter.ps', 'phone' => ''])
-            ->assertOk()
-            ->assertJsonPath('phone', '');
-        $this->assertNull($this->omar->fresh()->phone);
+        $omar = $this->omar->fresh();
+        $this->assertSame('Omar Saleh', $omar->name);
+        $this->assertSame('omar@medcenter.ps', $omar->email);
     }
 
     public function test_the_profile_never_changes_role_status_or_expiry(): void
     {
-        $this->actingAsStorekeeper($this->omar);
+        $this->actingAsAdmin($this->sara);
 
         $this->putJson('/api/profile', [
-            'name' => 'Omar', 'email' => 'omar@medcenter.ps', 'phone' => '',
-            'role' => 'admin', 'status' => 'inactive', 'accountExpiresOn' => '2000-01-01',
+            'name' => 'Sara', 'email' => 'sara@medcenter.ps', 'phone' => '',
+            'role' => 'storekeeper', 'status' => 'inactive', 'accountExpiresOn' => '2000-01-01',
         ])->assertOk();
 
-        $omar = $this->omar->fresh();
-        $this->assertSame('storekeeper', $omar->role->value);
-        $this->assertSame('active', $omar->status->value);
-        $this->assertNull($omar->account_expires_on);
+        $sara = $this->sara->fresh();
+        $this->assertSame('admin', $sara->role->value);
+        $this->assertSame('active', $sara->status->value);
+        $this->assertNull($sara->account_expires_on);
     }
 
     public function test_an_email_used_by_another_account_is_a_409_but_keeping_your_own_is_fine(): void
     {
-        $this->actingAsStorekeeper($this->omar);
+        $this->actingAsAdmin($this->sara);
 
-        $this->putJson('/api/profile', ['name' => 'Omar', 'email' => 'SARA@medcenter.ps'])
+        $this->putJson('/api/profile', ['name' => 'Sara', 'email' => 'OMAR@medcenter.ps'])
             ->assertConflict()
             ->assertJsonPath('errors.email', 'Another account already uses this email address.');
 
-        $this->putJson('/api/profile', ['name' => 'Omar', 'email' => 'OMAR@medcenter.ps'])->assertOk();
+        $this->putJson('/api/profile', ['name' => 'Sara', 'email' => 'SARA@medcenter.ps'])->assertOk();
     }
 
     public function test_update_checks_every_field(): void
     {
-        $this->actingAsStorekeeper($this->omar);
+        $this->actingAsAdmin($this->sara);
 
         $this->putJson('/api/profile', ['name' => '   ', 'email' => 'nope', 'phone' => str_repeat('1', 31)])
             ->assertUnprocessable()

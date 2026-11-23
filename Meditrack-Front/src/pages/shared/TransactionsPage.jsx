@@ -3,7 +3,7 @@ import { Plus, Filter, Calendar, ChevronDown, RotateCcw } from 'lucide-react';
 import { ACTION_BUTTON_TONE, DeleteIcon, EditIcon, HistoryIcon } from '../../components/common/ActionIcons';
 import ConfirmDialog from '../../components/common/ConfirmDialog';
 import { TableState } from '../../components/common/DataState';
-import { FieldError } from '../../components/common/FormField';
+import { FieldError, OptionalMark as Optional, RequiredMark as Required } from '../../components/common/FormField';
 import BarcodeScanPanel from '../../components/inventory/BarcodeScanPanel';
 import InlineAlert from '../../components/common/InlineAlert';
 import Modal from '../../components/common/Modal';
@@ -84,10 +84,6 @@ const fieldLabelClass = 'font-bold text-slate-600 mb-1 block';
 const fieldInputClass = 'w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2.5 font-semibold text-slate-700 focus:outline-none';
 
 const EXPIRY_OPTION_NOTES = { [EXPIRY_STATUS.EXPIRING_SOON]: ', expiring soon' };
-
-// Marks a field the form cannot be saved without.
-const Required = () => <span className="text-red-500" aria-hidden="true"> *</span>;
-const Optional = () => <span className="font-semibold text-slate-400"> (optional)</span>;
 
 // The fields of an incoming / outgoing transaction, shared by the "add" and "edit" modals.
 // `form` holds the input values as strings; `onChange` receives the fields that changed;

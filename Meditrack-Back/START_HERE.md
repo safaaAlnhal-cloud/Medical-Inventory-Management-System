@@ -21,7 +21,7 @@ php artisan key:generate
 # أنشئي قاعدة بيانات فارغة اسمها meditrack في MySQL
 php artisan migrate --seed    # الجداول + البيانات التجريبية
 php artisan test              # يجب أن ينجح كله
-php artisan serve             # http://localhost:8000
+php artisan serve             # http://127.0.0.1:8000 (ليس localhost: انظري الملاحظة تحت)
 ```
 
 **الواجهة** (داخل `Meditrack-Front`):
@@ -32,6 +32,9 @@ cp .env.example .env          # VITE_USE_MOCK_DATA=true للـ Mock، أو false
 npm run dev                   # http://localhost:5173
 ```
 
+**ملاحظة السرعة:** في `.env` الواجهة اكتبي `VITE_API_BASE_URL=http://127.0.0.1:8000/api`، وليس `localhost`.
+على Windows يجرّب `localhost` عنوان IPv6 أولًا، و`php artisan serve` لا يستمع عليه، فينتظر كل طلب نحو 0.2 ثانية.
+
 **حسابات تجريبية:** الأدمن `sara@medcenter.ps` / `admin123`. أمناء المخزن كلمة مرورهم `store123`:
 
 | الحساب | الحالة |
@@ -40,6 +43,7 @@ npm run dev                   # http://localhost:5173
 | `reem@medcenter.ps` | فعّال، وينتهي بعد 5 أيام: لتجربة تنبيهات انتهاء الحساب |
 | `mahmoud@medcenter.ps` | معطّل: لتجربة منع الدخول |
 | `safaa@medcenter.ps` | فعّال |
+| `khaled@medcenter.ps` | انتهى حسابه قبل 3 أيام: لتجربة رفض الدخول لحساب منتهٍ (على الـ API فقط) |
 
 `php artisan migrate:fresh --seed` يعيد القاعدة لحالتها الأولى في أي وقت.
 
@@ -50,7 +54,7 @@ npm run dev                   # http://localhost:5173
 | **قاعدة البيانات** | `database/migrations` | 14 ملف migration، والتصميم مشروح في القسم 9 من الـ handoff. **مغلقة:** أي تغيير = migration جديد |
 | **Models** | `app/Models` | العلاقات، والـ casts، ودوال مثل `isArchived()` و`canUseSystem()`، والـ scopes مثل `Item::active()` |
 | **Enums** | `app/Enums` | كل القيم الثابتة: الأدوار، والوحدات، وأنواع العمليات والتنبيهات والتقارير |
-| **بيانات تجريبية** | `database/seeders` | مطابقة لأرقام الـ Mock تمامًا. الكميات والمتوسطات تُحسب بـ `StockService`، نفس كود العمليات |
+| **بيانات تجريبية** | `database/seeders` | `DemoDataSeeder` مطابق لأرقام الـ Mock تمامًا. `ShowcaseDataSeeder` يضيف بقية حالات العرض على الـ API فقط (تعديلات، وإلغاءات، وإتلاف، وأصناف معطّلة، وحساب منتهٍ...). الكميات والمتوسطات تُحسب بـ `StockService`، نفس كود العمليات |
 | **Factories** | `database/factories` | لإنشاء بيانات في الاختبارات: `Item::factory()->archived()->create()` |
 | **الأخطاء** | `bootstrap/app.php`، `app/Exceptions/ConflictException.php` | كل خطأ API بشكل `{ message, errors }` الذي تنتظره الواجهة. للتعارض: `throw ConflictException::on('field', '...')` → 409 |
 | **الدخول** | Sanctum | tokens جاهزة، والـ endpoints نفسها مهمة B في المرحلة 2 |
@@ -81,7 +85,7 @@ npm run dev                   # http://localhost:5173
 
 - `app/Models/*`، و`app/Enums/*`
 - `routes/api.php`، و`bootstrap/app.php`، و`app/Providers/AppServiceProvider.php`
-- `tests/TestCase.php`، و`database/seeders/DemoDataSeeder.php`
+- `tests/TestCase.php`، و`database/seeders/DemoDataSeeder.php`، و`database/seeders/ShowcaseDataSeeder.php`
 - الـ Services المشتركة (القسم 3)
 - `BACKEND_HANDOFF.md`، و`BACKEND_PLAN.md`، و`CONVENTIONS.md`
 - ملفات الواجهة المشتركة: `src/services/apiAxios.js`، وبيانات الـ Mock المشتركة، والـ layout والقائمة الجانبية
@@ -115,5 +119,5 @@ git push -u origin a/incoming
 
 ## 6. أشياء مؤقتة يجب ألا تُنسى (المرحلة 6)
 
-- `GET /api/user` في `routes/api.php`: مسار تجريبي لـ Sanctum، يُحذف عندما يُبنى `/auth/me`.
-- تحديثات Symfony الأمنية (`composer audit`).
+- ~~`GET /api/user` في `routes/api.php`~~: حُذف في المرحلة 6، و`/auth/me` يقوم بعمله.
+- ~~تحديثات Symfony الأمنية~~: حُدّثت في المرحلة 6 (Laravel 13.43، وSymfony 8.1.11)، و`composer audit` نظيف.

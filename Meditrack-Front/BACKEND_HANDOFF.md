@@ -37,8 +37,8 @@ design is in section 9.
 **Requirements added after the supervisor's review** (decisions 19–27 in section 8): factory
 barcodes and manufacturers, extra item details, manufacturing date and optional supplier on
 batches, archive reason and history, account expiry, alert priority, backend report export with an
-export log. Insurance support and changing one's own email are **deferred**. Everything they need
-in the frontend is **planned**; none of it is implemented yet.
+export log. Insurance support and changing one's own email are **deferred**. Everything else is
+**implemented**, in the backend and in the frontend (mock and API).
 
 ### Service files
 
@@ -68,7 +68,7 @@ in the frontend is **planned**; none of it is implemented yet.
 | `VITE_USE_MOCK_DATA` | `true` | Mock data, also in a production build (use this for a demo build) |
 | | `false` | Real API |
 | | not set | Mock data under `npm run dev`; **real API in a production build** |
-| `VITE_API_BASE_URL` | URL | Base URL of the API. Default `http://localhost:5000/api`; the Laravel backend serves it at `http://localhost:8000/api` (`php artisan serve`), so set this value in `.env` |
+| `VITE_API_BASE_URL` | URL | Base URL of the API. Default `http://localhost:5000/api`; the Laravel backend serves it at `http://127.0.0.1:8000/api` (`php artisan serve`), so set this value in `.env`. Use `127.0.0.1`, not `localhost`: on Windows `localhost` tries IPv6 first, which `php artisan serve` does not listen on, and every request waits about 0.2 s |
 
 A production build therefore never falls back to fake data by accident: mock mode has to be asked
 for. To go live:
@@ -88,7 +88,7 @@ mode (they are just never called). Excluding them needs the services to load the
 
 | Topic | Convention |
 |---|---|
-| Base URL | `VITE_API_BASE_URL`, e.g. `http://localhost:8000/api` |
+| Base URL | `VITE_API_BASE_URL`, e.g. `http://127.0.0.1:8000/api` |
 | Format | JSON request and response bodies |
 | Response body | The resource itself, with no envelope. If you prefer `{ "data": ... }`, tell the frontend team: it is a one-line change in `unwrap` in `src/services/apiAxios.js` |
 | IDs | Any stable unique value (number or string). Entities reference each other by id only |
@@ -156,14 +156,15 @@ show each message under the input whose name matches the key; a failure without 
 
 | Form | Keys |
 |---|---|
-| Item | `name`, `categoryId`, `unit`, `minQty`; **planned:** `activeIngredient`, `strength`, `dosageForm`, `storageConditions`, `uses`, `description` |
+| Item | `name`, `categoryId`, `unit`, `minQty`, `activeIngredient`, `strength`, `dosageForm`, `storageConditions`, `uses`, `description` |
 | Transaction | `type`, `itemId`, `quantity`, `unitCost`, `date`, `expiryDate`, `batchNumber`, `supplier`, `manufacturer`, `manufacturingDate`, `batchId`, `recipient` |
 | User | `name`, `email`, `password`, `status`, `newPassword`, `accountExpiresOn` |
-| Barcode (**planned**) | `barcode`, `manufacturer` |
-| Archive item (**planned**) | `reason` |
+| Barcode | `barcode`, `manufacturer` |
+| Archive item | `reason` |
 
-**Planned (all forms):** every required input shows a red `*` after its label and each form
-has a short "* Required" note; every optional input says "(optional)". The required / optional
+**Required marks (implemented, decided in phase 6):** every required input shows a red `*` after
+its label, and every optional input says "(optional)", on every form (`RequiredMark` and
+`OptionalMark` in `src/components/common/FormField.jsx`). The required / optional
 split of each form is listed with its endpoint in section 4, and the frontend checks must match
 the backend rules there exactly.
 
@@ -231,7 +232,7 @@ Account expiry fields (**implemented**, decision 23):
     `null`. An expired batch is not counted: it is no longer about to expire.
 - `archived` / `archivedAt`: see "Archived items" below.
 
-**Planned** item fields (decisions 19, 21, 22):
+**Implemented** item fields (decisions 19, 21, 22):
 ```json
 { "activeIngredient": "Paracetamol", "strength": "500 mg", "dosageForm": "Tablet",
   "storageConditions": "Store below 25°C", "uses": "Pain and fever relief", "description": null,
@@ -258,7 +259,7 @@ Account expiry fields (**implemented**, decision 23):
 **Implemented** on incoming transactions (mock and API): `"manufacturerId": 2` and
 `"manufacturingDate": "2025-12-01"`, both `null` when unknown, and `supplier` is **optional**
 (`null` for donations and stock with no commercial supplier); the UI shows "—" for it.
-**Planned:** these three also appear on each batch inside an item (`GET /inventory`).
+**Implemented:** these three also appear on each batch inside an item (`GET /inventory`).
 - `id` is the **unique internal identifier** of the batch. Transactions and notifications
   reference a batch by this id (`batchId`), never by its number.
 - `batchNumber` is the label the manufacturer printed on the box; the system never generates one.
@@ -347,7 +348,7 @@ A company that makes the products. Linked to batches and to barcodes, never to a
 mode (`getManufacturersApi` in `src/services/manufacturersApi.js`). **Implemented:** a manufacturer
 is created from the Incoming form (section 4.5), which suggests the existing names as the user types.
 
-### Barcodes and manufacturers (planned)
+### Barcodes and manufacturers
 
 **Decided (decisions 19–21).** The system reads the **factory barcode** printed on the box. It
 does not generate or print QR codes or barcodes of its own.
@@ -479,8 +480,7 @@ display text only. The data model, service functions and endpoints keep the word
 - **An item can only be archived while its stock is 0.** `PATCH /inventory/:id/archive` returns
   `409` otherwise, with a message telling the user to issue or correct the remaining stock first.
   Archiving therefore can never make stock or stock value disappear from the inventory.
-  (Whether the backend should instead allow it and keep the stock is an open decision; refusing
-  is the non-destructive choice.)
+  (Decided, decision 1: refusing is the non-destructive choice, so it stays.)
 - **Active inventory** means items that are not archived. Archived items are left out of
   `GET /inventory`, its search, the item selectors for new transactions, the dashboard summary,
   critical inventory, alerts / notifications, and the rows and stock value of the Inventory
@@ -506,7 +506,7 @@ display text only. The data model, service functions and endpoints keep the word
 
 **Decided:** any signed-in user (admin or storekeeper) may create, edit, archive and restore items.
 
-**Archive reason and history (decided, decision 22; planned in the frontend).**
+**Archive reason and history (decided, decision 22; implemented).**
 
 - Archiving **requires a reason**: `PATCH /inventory/:id/archive` with `{ "reason": "..." }`,
   1–500 characters, not only spaces (`422`, field `reason`). The Deactivate dialog gets a
@@ -635,7 +635,7 @@ Rules that reject an edit (the response body carries a message the UI shows as i
 | `date` is in the future | `422` |
 | Incoming: `expiryDate` is before `date` (the batch was already expired when received). Checked only when `date` or `expiryDate` changes, or when the transaction used to be outgoing, so an old receipt whose batch has expired since can still be corrected | `422` |
 | Incoming: the item already has an active batch with that number **from the same manufacturer** (or, with no manufacturer, another active batch with no manufacturer and that number) | `409` |
-| Incoming: `manufacturingDate` in the future, after `date` or after `expiryDate` (planned) | `422` |
+| Incoming: `manufacturingDate` in the future, after `date` or after `expiryDate` | `422` |
 | Incoming whose batch has active outgoing transactions: item changed, quantity below what was issued, or changed to outgoing | `409` |
 | Incoming: `date` later than the first date stock was issued from its batch | `422` |
 | Outgoing: `batchId` is not a batch of that item with an active receipt | `422` |
@@ -648,7 +648,7 @@ Rules that reject an edit (the response body carries a message the UI shows as i
 Batch handling:
 
 - Incoming stays incoming: the same batch record is updated (`itemId`, `batchNumber`, `unitCost`,
-  `supplier`, `expiryDate`, and, when planned, `manufacturerId`, `manufacturingDate`). Its id does not change, so outgoing transactions keep pointing at it.
+  `supplier`, `expiryDate`, `manufacturerId`, `manufacturingDate`). Its id does not change, so outgoing transactions keep pointing at it.
 - Outgoing to incoming: a new batch is created; the quantity it had issued returns to the old batch.
 - Incoming to outgoing: the batch it received no longer has a receipt and leaves stock. The
   record is kept so its number still resolves in `GET /inventory/batches/lookup`.
@@ -675,7 +675,7 @@ transaction as the edit**: either both are saved or neither is.
 
 - `oldValues` / `newValues` hold **only the fields that changed**, with the request field names
   (`type`, `itemId`, `quantity`, `date`, `batchNumber`, `unitCost`, `expiryDate`, `supplier`,
-  `batchId`, `recipient`; **planned:** `manufacturerId`, `manufacturingDate`) and raw values (ids,
+  `batchId`, `recipient`, `manufacturerId`, `manufacturingDate`) and raw values (ids,
   ISO dates, numbers). The manufacturer is recorded as `manufacturerId`, although the request
   sends it by name. The frontend turns ids into names with the lookup endpoints
   (`GET /manufacturers` for manufacturers); items, batches, users and manufacturers are never
@@ -886,7 +886,7 @@ Validation (**backend must**; the mock applies the same rules):
 storekeepers (any other `role` is rejected with `422`), roles never change, and users are never
 deleted: an account that should no longer be used is set to `inactive`. Because the one admin
 cannot deactivate their own account, the system always keeps an active admin.
-`lastActiveAt` is updated at login (open decision 15).
+`lastActiveAt` is updated at every login, and only then (decision 15).
 
 #### Account expiry (decided, decision 23; implemented, alerts included: section 4.6)
 
@@ -952,7 +952,7 @@ characters after trimming (`422`), and unique, case-insensitive (`409`, field `n
 | DELETE | `/inventory/:id/barcodes/:barcodeId` | Any signed-in user | → `200` with the `Item`. `404` if the barcode is not this item's; `409` if the item is archived |
 | GET | `/inventory/:id/archive-history` | Any signed-in user | Archive records, newest first (shape in "Archived items", section 3). `[]` if never archived. **Implemented** |
 
-Changes to existing endpoints (planned):
+Changes to existing endpoints (implemented):
 
 - `PATCH /inventory/:id/archive` takes `{ "reason" }` (required, see "Archived items").
 - **Implemented:** `search` on `/inventory` and `/inventory/archived` also matches barcodes, manufacturer names (of a barcode or of a batch in stock) and
@@ -965,7 +965,7 @@ in section 3.
 
 `POST` / `PUT` request: `{ "name": "Bandage Roll", "categoryId": 2, "unit": "pack", "minQty": 0 }` → the full `Item`.
 A new item has `quantity` 0 until an incoming transaction is recorded.
-**Planned:** the request also carries the six optional detail fields (`activeIngredient`,
+**Implemented:** the request also carries the six optional detail fields (`activeIngredient`,
 `strength`, `dosageForm`, `storageConditions`, `uses`, `description`; `null` or empty = not
 set). Barcodes are not part of it: they are managed with the barcode endpoints above, because the
 Incoming form links a barcode on its own.
@@ -980,16 +980,16 @@ list are optional.
 | `categoryId` is an existing category | `422` | `categoryId` |
 | `unit` is one of the units in section 2 | `422` | `unit` |
 | `minQty` is a whole number, zero or more | `422` | `minQty` |
-| Planned: each detail field is text within its length limit (section 3, "Inventory item") | `422` | that field |
-| Planned: `barcode` is 1–64 characters with no spaces | `422` | `barcode` |
-| Planned: `barcode` is not used by any item, active or archived | `409` | `barcode` |
-| Planned: `manufacturer` (barcode link) is required | `422` | `manufacturer` |
+| Each detail field is text within its length limit (section 3, "Inventory item") | `422` | that field |
+| `barcode` is 1–64 characters with no spaces | `422` | `barcode` |
+| `barcode` is not used by any item, active or archived | `409` | `barcode` |
+| `manufacturer` (barcode link) is required | `422` | `manufacturer` |
 
 **Implemented** (backend and mock): `GET /inventory`, `/inventory/archived`, `/inventory/lookup`,
 `POST /inventory` (`201`) and `PUT /inventory/:id`, with every rule in the table above. Also:
 `name` is at most 150 characters, and `minQty` is a whole number from 0 to 1,000,000 (`422`,
-field `minQty`). Backend only, until the frontend uses them:
-- The `Item` already carries the planned fields: the six details, `barcodes`, `archiveReason`,
+field `minQty`). Also:
+- The `Item` carries the fields of decisions 19–22: the six details, `barcodes`, `archiveReason`,
   `archivedBy`, `archiveHistoryCount`, and `manufacturerId` / `manufacturingDate` on each batch.
 - `POST` / `PUT` accept the six detail fields. A detail that is not sent stays as it is; `null` or
   `""` clears it. Too long gives `422` on that field ("This field may not be longer than N characters.").
@@ -1022,7 +1022,7 @@ button). It needs no new endpoint: everything is on the `Item`.
 `GET` returns `Transaction[]` of that type, newest first (`createdAt` descending), **including
 cancelled transactions** (the page shows them with a Cancelled badge).
 `from` / `to` are inclusive ISO dates applied to `date`. `search` matches item name, batch number,
-supplier, recipient and the recorder's name (**planned:** and the manufacturer name). All query
+supplier, recipient and the recorder's name and the manufacturer name. All query
 parameters are optional.
 
 `POST /transactions/incoming` request:
@@ -1296,8 +1296,8 @@ order and applies the same audience rule.
 |---|---|---|
 | GET | `/reports/:type?from=&to=&categoryId=&itemId=&search=&page=&pageSize=` | Any signed-in user |
 
-**Decided:** all four reports, including `inventory_value`, are open to both roles (the frontend
-page for storekeepers is **planned**, see section 2). Money values are not hidden from
+**Decided:** all four reports, including `inventory_value`, are open to both roles (the same Reports
+page, at `/admin/reports` and `/storekeeper/reports`). Money values are not hidden from
 storekeepers: they already see unit costs on the Inventory and Transactions pages.
 
 `:type` is `summary`, `movement_history`, `critical_items` or `inventory_value`. An unknown type is `404`.
@@ -1432,7 +1432,7 @@ They always act on the user identified by the token.
 | Method | Endpoint | Access | Notes |
 |---|---|---|---|
 | GET | `/profile` | Any signed-in user | Returns the `User` |
-| PUT | `/profile` | Any signed-in user | Request `{ "name", "email", "phone" }` → the `User`. `409` if the email is taken |
+| PUT | `/profile` | Admin | Request `{ "name", "email", "phone" }` → the `User`. `409` if the email is taken |
 | PUT | `/profile/password` | Any signed-in user | Request `{ "currentPassword", "newPassword" }`. `422` if `currentPassword` is wrong (field `currentPassword`) or `newPassword` is shorter than 6 characters (field `newPassword`). No response body needed |
 
 **Implemented** (backend and mock). `PUT /profile/password` returns `204`. `phone` is optional, at
@@ -1448,9 +1448,10 @@ sent with it is ignored. An empty `currentPassword` gets the same message as a w
   outcome is reported on its own ("Your profile was saved, but your password was not changed: ...").
   Nothing is reported as saved unless its request succeeded. The same applies to an admin editing
   a user and setting a new password on the Users page.
-- The storekeeper Profile page only shows the profile and changes the password. Whether a
-  storekeeper may change their own name, email or phone through `PUT /profile` is an **open
-  decision** (the endpoint allows it; the UI does not offer it).
+- The storekeeper Profile page only shows the profile and changes the password. **Decided
+  (decision 12):** a storekeeper does not change their own name, email or phone; the admin does it
+  on the Users page. `PUT /profile` is therefore admin only: a storekeeper gets `403` (backend
+  and mock).
 - **Deferred (decision 27):** changing one's own email from the Profile page, and confirming a new
   email by message, wait for the team's discussion. Nothing is built for them. The admin's Settings
   page keeps the profile form it already has.
@@ -1475,7 +1476,7 @@ is disabled on Settings and Profile, which have nothing to search.
 | Users | `search` | Nothing |
 
 **Sorting.** The frontend never sorts. Lists are shown in the order the service returns them;
-the order each endpoint should use is given with that endpoint. The planned alert priority
+the order each endpoint should use is given with that endpoint. The alert priority
 (section 4.6) is therefore applied by the backend and the mock, not by the pages.
 
 **Pagination.** Only `/reports/:type` is paginated by the server (`page`, `pageSize`, and
@@ -1489,6 +1490,12 @@ Each page that shows names loads those lookups when it opens.
 
 ## 6. Mock mode notes
 
+- **Mock and API data (decided, phase 6):** the backend's `DemoDataSeeder` is the mock's data,
+  record for record. `ShowcaseDataSeeder` then adds, on the API only, ten items with every other
+  demo case: low, out of stock and never stocked, an expired batch awaiting disposal, a past
+  disposal, edits with history, cancelled incoming and outgoing transactions, a deactivated item
+  and a reactivated one, six categories, and an expired account (`khaled@medcenter.ps`). The
+  mock checks rely on the mock's own figures, so these are not copied into `src/mockData`.
 - Seed data lives in `src/mockData`. The mock database (`src/services/mock/mockDb.js`) copies it
   into memory and keeps it in `sessionStorage`, so changes survive a refresh and reset when the
   browser tab is closed.
@@ -1530,14 +1537,14 @@ be sent without the UI.
    dashboard numbers and report totals are calculated by the server from active transactions.
    The frontend only displays them.
 6. **Archiving.** Never delete an item; enforce the rules in "Archived items", require the reason
-   and keep the full archive history (planned).
+   and keep the full archive history (implemented).
 7. **Cancelling.** Never delete a transaction; enforce the rules in "Cancelled transactions".
 8. **Notifications.** Generate the alerts in section 4.6, store read state per user, show account
    alerts only to their audience and return every list in priority order (implemented).
 9. **Accounts.** Refuse login (`403`) and every request (`401`) for an expired account; never let
-   the admin account expire (implemented). Setting `accountExpiresOn` from the Users page is
-   planned (section 4.2).
-10. **Barcodes and manufacturers (planned).** Keep every barcode unique system-wide, block barcode
+   the admin account expire. Setting `accountExpiresOn` from the Users page (section 4.2)
+   (implemented).
+10. **Barcodes and manufacturers (implemented).** Keep every barcode unique system-wide, block barcode
     changes on archived items, never create a duplicate manufacturer by spelling, and keep batch
     numbers unique per item and manufacturer.
 11. **Exports (implemented).** Build every export file on the server, with the report information,
@@ -1549,8 +1556,9 @@ be sent without the UI.
 
 - No automated UI tests and no test framework. `npm run check:services` covers the mock data
   layer's rules only.
-- The real API mode has never run against a server: every `api` branch is written to this
-  contract but untested.
+- API mode was checked against the real backend in phase 6: the frontend's services ran in both
+  modes on the same data and the results were compared field by field. The pages themselves have
+  no automated test in either mode.
 - Lists other than reports are not paginated (section 5). In mock mode only, the print-dialog
   PDF holds at most 1000 rows (section 4.8); the backend export has no limit.
 - Each page that shows names loads the three lookup lists when it opens; they are not shared
@@ -1560,16 +1568,16 @@ be sent without the UI.
 - The session token is kept in web storage, and there is no token refresh.
 - The app is one JavaScript bundle (about 500 kB); routes are not split.
 
-**Decisions.** "Decided" rows are settled for the backend. "Open" rows were not discussed yet: the
-backend follows the behaviour shown until they are. "Deferred" rows were postponed on purpose and
-nothing is built for them. Rows 19–27 come from the supervisor's review; their frontend parts are
-planned.
+**Decisions.** "Decided" rows are settled for the backend; the last open ones (1, 12, 13, 15) were
+decided together in phase 6. "Deferred" rows were postponed on purpose and
+nothing is built for them. Rows 19–27 come from the supervisor's review; 19–25 are built, 26 and
+27 are deferred.
 
 | # | Question | Status | Answer / current behaviour |
 |---|---|---|---|
-| 1 | May an item with stock be archived, and what happens to the stock? | Open | Refused with `409` until the stock is 0 and no expired stock awaits disposal |
+| 1 | May an item with stock be archived, and what happens to the stock? | Decided | Refused with `409` until the stock is 0 and no expired stock awaits disposal |
 | 2 | Who may archive / restore items, and edit or cancel transactions recorded by someone else? | Decided | Any signed-in user (admin or storekeeper). Who recorded, edited and cancelled is kept |
-| 3 | Must quantities be whole numbers? | Decided | Yes, quantities and `minQty`. The mock still accepts any number above 0 |
+| 3 | Must quantities be whole numbers? | Decided | Yes, quantities and `minQty`, from 1 to 1,000,000 (`minQty` from 0), in the backend and the mock |
 | 4 | May a transaction be dated in the future? May an already expired batch be received? | Decided | No future dates. A batch whose `expiryDate` is before its receipt `date` is refused; `expiryDate` may be `null` |
 | 5 | Who may record an expired stock disposal? | Decided | Any signed-in user (issuing expired stock is refused for everyone) |
 | 6 | Money: stored precision and the currency | Decided | US dollars; unit costs to 4 decimals, totals to 2 |
@@ -1578,10 +1586,10 @@ planned.
 | 9 | Pagination for inventory, transactions, users, notifications; lookups versus embedded names | Decided | Not paginated for now (reports are); the three lookup endpoints stay |
 | 10 | Report export beyond 1000 rows | Decided | No limit: exports are built by the backend (decision 25). Only the mock mode's printed PDF is truncated, and labelled |
 | 11 | Can more admins be created, roles changed, users deleted? | Decided | One admin from the seeder; only storekeepers are created; no role changes; users are deactivated, never deleted |
-| 12 | May a storekeeper edit their own name / email / phone? | Open | Endpoint allows it; UI does not offer it. Changing one's own email is deferred (decision 27) |
-| 13 | Self-service password reset by email | Open | Not available; an admin sets a new password |
+| 12 | May a storekeeper edit their own name / email / phone? | Decided | No. The admin changes them on the Users page; `PUT /profile` is admin only (`403` for a storekeeper) |
+| 13 | Self-service password reset by email | Decided | No. An admin sets a new password on the Users page |
 | 14 | Are alerts stored or derived; meaning of `createdAt`; unread again when they return? | Decided | Stored: the current alert conditions, kept up to date by `NotificationService` (section 4.6), with their figures worked out when read; `createdAt` is when the condition was first seen; unread again when it returns |
-| 15 | When is `lastActiveAt` updated? | Open | At login only |
+| 15 | When is `lastActiveAt` updated? | Decided | At every login, and only then |
 | 16 | Is stock valued at the item's Average Cost or per batch? Should a disposal produce an accounting write-off? | Decided | One moving Average Cost per item, for available, expired and disposed stock. Expired stock awaiting disposal stays in the quantity the average is built on; a disposal does not change the average. No write-off entry |
 | 17 | Who may see the reports? | Decided | Both roles, all four reports, on the same Reports page (`/admin/reports`, `/storekeeper/reports`) |
 | 18 | Is the history of edits to a transaction kept? | Decided | Yes, every edit with who, when, old and new values ("Edit history", section 3). Manufacturer and manufacturing date changes are included |
@@ -1630,8 +1638,8 @@ and checked by PHP enums in `app/Enums`.
 | `notification_reads` | `notification_id` (deleted with its alert), `user_id`, `read_at`; unique per alert and user |
 | `personal_access_tokens` | Sanctum tokens, hashed, with `expires_at` |
 
-**Planned changes (decisions 19–25; the phase 1 migrations are edited and the database rebuilt,
-since it holds demo data only)**
+**Added for decisions 19–25 (built: the phase 1 migrations were edited and the database rebuilt,
+since it held demo data only)**
 
 | Table | Change |
 |---|---|

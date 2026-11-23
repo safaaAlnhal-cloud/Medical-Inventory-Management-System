@@ -31,7 +31,9 @@ return [
 
     'exposed_headers' => [],
 
-    'max_age' => 0,
+    // The browser keeps a preflight answer this many seconds (2 hours, Chrome's own limit), so
+    // a request with the Authorization header is not preceded by an OPTIONS request every time.
+    'max_age' => 7200,
 
     'supports_credentials' => false,
 

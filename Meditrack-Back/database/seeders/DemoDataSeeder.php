@@ -30,11 +30,10 @@ use Illuminate\Support\Facades\DB;
  * Expected stock after seeding: Paracetamol 500, Amoxicillin 15, Gloves 8, Saline 120,
  * Syringes 0, Cotton Rolls 300.
  *
- * Added for the supervisor's requirements (not in the mock yet; each owner adds them to the mock
- * with their feature): item details, manufacturers on batches, manufacturing dates, factory
- * barcodes (Paracetamol has two manufacturers and two barcodes), and Reem's account expiring in
- * 5 days so the account alerts can be seen. None of these change a stock figure or a cost.
- * Company names are made up for the demo.
+ * Also here, and in the mock: item details, manufacturers on batches, manufacturing dates,
+ * factory barcodes (Paracetamol has two manufacturers and two barcodes), and Reem's account
+ * expiring in 5 days so the account alerts can be seen. None of these change a stock figure or a
+ * cost. Company names are made up for the demo.
  */
 class DemoDataSeeder extends Seeder
 {
