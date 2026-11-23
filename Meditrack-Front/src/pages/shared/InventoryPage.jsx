@@ -530,21 +530,21 @@ const InventoryPage = () => {
           <form onSubmit={handleSaveItem} className="space-y-4">
             {itemError && <InlineAlert>{itemError}</InlineAlert>}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <FormField label="Item Name" error={itemFieldErrors.name}>
+              <FormField label="Item Name" required error={itemFieldErrors.name}>
                 <input type="text" required placeholder="e.g. Paracetamol 500mg" value={itemForm.name} onChange={(e) => setItemForm({ ...itemForm, name: e.target.value })} className={inputClassName} />
               </FormField>
-              <FormField label="Category" error={itemFieldErrors.categoryId}>
+              <FormField label="Category" required error={itemFieldErrors.categoryId}>
                 <select required value={itemForm.categoryId || defaultCategoryId} onChange={(e) => setItemForm({ ...itemForm, categoryId: e.target.value })} className={inputClassName}>
                   {categories.length === 0 && <option value="">No categories yet</option>}
                   {categories.map((category) => (<option key={category.id} value={category.id}>{category.name}</option>))}
                 </select>
               </FormField>
-              <FormField label="Unit" error={itemFieldErrors.unit}>
+              <FormField label="Unit" required error={itemFieldErrors.unit}>
                 <select value={itemForm.unit} onChange={(e) => setItemForm({ ...itemForm, unit: e.target.value })} className={inputClassName}>
                   {UNITS.map((unit) => (<option key={unit} value={unit}>{formatUnit(unit)}</option>))}
                 </select>
               </FormField>
-              <FormField label="Min Quantity (Alert)" error={itemFieldErrors.minQty}>
+              <FormField label="Min Quantity (Alert)" required error={itemFieldErrors.minQty}>
                 <input type="number" min="0" step="1" required value={itemForm.minQty} onChange={(e) => setItemForm({ ...itemForm, minQty: e.target.value })} className={inputClassName} />
               </FormField>
             </div>
@@ -554,7 +554,7 @@ const InventoryPage = () => {
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-3">
                 {DETAIL_FIELDS.map(([field, label, placeholder, long]) => (
                   <div key={field} className={long ? 'sm:col-span-2' : ''}>
-                    <FormField label={label} error={itemFieldErrors[field]}>
+                    <FormField label={label} optional error={itemFieldErrors[field]}>
                       {long ? (
                         <textarea rows={2} maxLength={ITEM_DETAIL_LIMITS[field]} placeholder={placeholder} value={itemForm[field]} onChange={(e) => setItemForm({ ...itemForm, [field]: e.target.value })} className={`${inputClassName} resize-none`} />
                       ) : (
@@ -595,7 +595,7 @@ const InventoryPage = () => {
           onConfirm={handleArchiveItem}
           onCancel={() => setItemToArchive(null)}
         >
-          <FormField label="Reason *" error={archiveReasonError}>
+          <FormField label="Reason" required error={archiveReasonError}>
             <textarea
               rows={3}
               maxLength={500}

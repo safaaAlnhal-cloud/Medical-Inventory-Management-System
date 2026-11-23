@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { AlertTriangle, Lock, Mail, Shield, CheckCircle2, ChevronDown, ChevronUp } from 'lucide-react';
 import { ErrorState, LoadingState } from '../../components/common/DataState';
+import { RequiredMark } from '../../components/common/FormField';
 import InlineAlert from '../../components/common/InlineAlert';
 import PageHeader from '../../components/common/PageHeader';
 import { ACCOUNT_WARNING_DAYS, MIN_PASSWORD_LENGTH, ROLE_LABELS, USER_STATUS, USER_STATUS_LABELS } from '../../constants/users';
@@ -142,17 +143,17 @@ const ProfilePage = () => {
 
           <form onSubmit={handleSubmit} className="space-y-4">
             <label className="block">
-              <span className="text-xs font-bold text-slate-700 block mb-1">Current Password</span>
+              <span className="text-xs font-bold text-slate-700 block mb-1">Current Password<RequiredMark /></span>
               <input type="password" autoComplete="current-password" value={passwords.currentPassword} onChange={(e) => setPasswords({ ...passwords, currentPassword: e.target.value })} className={passwordInputClass} placeholder="••••••••" required />
             </label>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <label className="block">
-                <span className="text-xs font-bold text-slate-700 block mb-1">New Password</span>
+                <span className="text-xs font-bold text-slate-700 block mb-1">New Password<RequiredMark /></span>
                 <input type="password" autoComplete="new-password" minLength={MIN_PASSWORD_LENGTH} value={passwords.newPassword} onChange={(e) => setPasswords({ ...passwords, newPassword: e.target.value })} className={passwordInputClass} placeholder="••••••••" required />
               </label>
               <label className="block">
-                <span className="text-xs font-bold text-slate-700 block mb-1">Confirm New Password</span>
+                <span className="text-xs font-bold text-slate-700 block mb-1">Confirm New Password<RequiredMark /></span>
                 <input type="password" autoComplete="new-password" value={passwords.confirmPassword} onChange={(e) => setPasswords({ ...passwords, confirmPassword: e.target.value })} className={passwordInputClass} placeholder="••••••••" required />
               </label>
             </div>

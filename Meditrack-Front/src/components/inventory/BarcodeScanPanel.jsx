@@ -1,7 +1,7 @@
 import React, { useId, useState } from 'react';
 import { CheckCircle2, Link2 } from 'lucide-react';
 import ScanInput from './ScanInput';
-import { inputClassName } from '../common/FormField';
+import { inputClassName, RequiredMark } from '../common/FormField';
 import { getErrorMessage, getFieldErrors } from '../../services/apiError';
 import { getItemByBarcodeApi, linkBarcodeApi } from '../../services/inventoryApi';
 import { sameId } from '../../utils/ids';
@@ -101,7 +101,7 @@ const BarcodeScanPanel = ({ onFound, manufacturers, linkItems = null, defaultIte
           </p>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
             <label className="block space-y-1">
-              <span className="block text-[11px] font-bold text-slate-500 uppercase">Item</span>
+              <span className="block text-[11px] font-bold text-slate-500 uppercase">Item<RequiredMark /></span>
               <select value={linkForm.itemId} onChange={(e) => setLinkForm({ ...linkForm, itemId: e.target.value })} className={`${inputClassName} cursor-pointer`}>
                 <option value="">Select item</option>
                 {linkItems.map((item) => (<option key={item.id} value={item.id}>{item.name}</option>))}
@@ -109,7 +109,7 @@ const BarcodeScanPanel = ({ onFound, manufacturers, linkItems = null, defaultIte
               {linkErrors.itemId && <span role="alert" className="block text-[11px] font-bold text-red-600">{linkErrors.itemId}</span>}
             </label>
             <label className="block space-y-1">
-              <span className="block text-[11px] font-bold text-slate-500 uppercase">Manufacturer</span>
+              <span className="block text-[11px] font-bold text-slate-500 uppercase">Manufacturer<RequiredMark /></span>
               <input type="text" maxLength={150} list={listId} autoComplete="off" placeholder="e.g. PharmaCo" value={linkForm.manufacturer} onChange={(e) => setLinkForm({ ...linkForm, manufacturer: e.target.value })} className={inputClassName} />
               <datalist id={listId}>
                 {manufacturers.map((manufacturer) => (<option key={manufacturer.id} value={manufacturer.name} />))}
