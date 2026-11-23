@@ -837,8 +837,10 @@ same `401` message for an unknown email and a wrong password.
 is a development stand-in and is not authentication.
 
 **Password reset.** There is no self-service "forgot password": no email is sent and no reset
-endpoint is called. The login page's "Forgot Password?" link says so and tells the user to ask
-an administrator, who sets a new password with `PUT /users/:id/password` (section 4.2). If a
+endpoint is called, and the login page has no "Forgot Password?" link (removed 2026-11-23). A
+user who forgot their password asks an administrator, who sets a new one with
+`PUT /users/:id/password` (section 4.2). The password field has an eye button to show or hide
+what was typed. If a
 reset-by-email flow is wanted later, it needs two new public endpoints (for example
 `POST /auth/forgot-password` `{ email }` and `POST /auth/reset-password` `{ token, newPassword }`)
 and a new page; neither exists today.
