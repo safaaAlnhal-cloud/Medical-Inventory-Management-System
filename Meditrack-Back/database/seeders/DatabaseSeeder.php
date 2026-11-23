@@ -14,7 +14,9 @@ class DatabaseSeeder extends Seeder
      *
      * AdminSeeder creates the one admin account; the system cannot work without it.
      * DemoDataSeeder adds the frontend's mock data (storekeepers, items, batches,
-     * transactions) for development and the demo. Leave it out on a real installation:
+     * transactions), and ShowcaseDataSeeder adds every other case for the demo (edits,
+     * cancellations, disposals, deactivated items, an expired account...).
+     * Leave both out on a real installation:
      *   php artisan db:seed --class=AdminSeeder
      */
     public function run(): void
@@ -22,6 +24,7 @@ class DatabaseSeeder extends Seeder
         $this->call([
             AdminSeeder::class,
             DemoDataSeeder::class,
+            ShowcaseDataSeeder::class,
         ]);
     }
 }

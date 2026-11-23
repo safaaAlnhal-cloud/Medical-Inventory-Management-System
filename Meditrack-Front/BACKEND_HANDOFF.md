@@ -68,7 +68,7 @@ in the frontend is **planned**; none of it is implemented yet.
 | `VITE_USE_MOCK_DATA` | `true` | Mock data, also in a production build (use this for a demo build) |
 | | `false` | Real API |
 | | not set | Mock data under `npm run dev`; **real API in a production build** |
-| `VITE_API_BASE_URL` | URL | Base URL of the API. Default `http://localhost:5000/api`; the Laravel backend serves it at `http://localhost:8000/api` (`php artisan serve`), so set this value in `.env` |
+| `VITE_API_BASE_URL` | URL | Base URL of the API. Default `http://localhost:5000/api`; the Laravel backend serves it at `http://127.0.0.1:8000/api` (`php artisan serve`), so set this value in `.env`. Use `127.0.0.1`, not `localhost`: on Windows `localhost` tries IPv6 first, which `php artisan serve` does not listen on, and every request waits about 0.2 s |
 
 A production build therefore never falls back to fake data by accident: mock mode has to be asked
 for. To go live:
@@ -88,7 +88,7 @@ mode (they are just never called). Excluding them needs the services to load the
 
 | Topic | Convention |
 |---|---|
-| Base URL | `VITE_API_BASE_URL`, e.g. `http://localhost:8000/api` |
+| Base URL | `VITE_API_BASE_URL`, e.g. `http://127.0.0.1:8000/api` |
 | Format | JSON request and response bodies |
 | Response body | The resource itself, with no envelope. If you prefer `{ "data": ... }`, tell the frontend team: it is a one-line change in `unwrap` in `src/services/apiAxios.js` |
 | IDs | Any stable unique value (number or string). Entities reference each other by id only |
@@ -1489,6 +1489,12 @@ Each page that shows names loads those lookups when it opens.
 
 ## 6. Mock mode notes
 
+- **Mock and API data (decided, phase 6):** the backend's `DemoDataSeeder` is the mock's data,
+  record for record. `ShowcaseDataSeeder` then adds, on the API only, ten items with every other
+  demo case: low, out of stock and never stocked, an expired batch awaiting disposal, a past
+  disposal, edits with history, cancelled incoming and outgoing transactions, a deactivated item
+  and a reactivated one, six categories, and an expired account (`khaled@medcenter.ps`). The
+  mock checks rely on the mock's own figures, so these are not copied into `src/mockData`.
 - Seed data lives in `src/mockData`. The mock database (`src/services/mock/mockDb.js`) copies it
   into memory and keeps it in `sessionStorage`, so changes survive a refresh and reset when the
   browser tab is closed.
