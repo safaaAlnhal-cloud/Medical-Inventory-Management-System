@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { Navigate, useLocation, useNavigate } from 'react-router-dom';
+import { Eye, EyeOff } from 'lucide-react';
 import { getHomePath } from '../../constants/users';
 import { useAuth } from '../../context/AuthContext';
 import { FieldError } from '../../components/common/FormField';
@@ -9,9 +10,6 @@ import { hasSessionExpired } from '../../services/authStorage';
 import bgImage from '../../assets/Gemini_Generated_Image_hnwdqbhnwdqbhnwd.jfif';
 
 const SESSION_ENDED_NOTICE = 'Your session has ended. Please sign in again.';
-// There is no self-service reset: nothing is emailed. An administrator sets a new password
-// from the Users page (Edit User), which is what this message tells the user to ask for.
-const PASSWORD_RESET_NOTICE = 'Passwords cannot be reset from this page. Ask your administrator to set a new password for your account.';
 
 const Login = () => {
   const navigate = useNavigate();
@@ -22,8 +20,10 @@ const Login = () => {
   const [error, setError] = useState('');
   // A message under each wrong input ({ email, password }), from a 422.
   const [fieldErrors, setFieldErrors] = useState({});
-  // Information that is not an error: why the user is back here, or how passwords are reset.
+  // Information that is not an error: why the user is back here.
   const [notice, setNotice] = useState(() => (hasSessionExpired() ? SESSION_ENDED_NOTICE : ''));
+  // The eye button beside the password: shows what was typed, as text, until pressed again.
+  const [showPassword, setShowPassword] = useState(false);
   // After too many attempts (429) the server refuses every sign-in for a while, even with the
   // right password. secondsLeft counts that wait down: the button is disabled until it reaches 0.
   const [secondsLeft, setSecondsLeft] = useState(0);
@@ -155,23 +155,35 @@ const Login = () => {
                 <label className="block text-xs font-bold text-slate-800 mb-1.5 font-nunito" htmlFor="password">
                   Password <span className="text-red-500">*</span>
                 </label>
-                <input
-                  className="w-full px-3.5 py-2.5 text-slate-700 bg-white border border-slate-300 rounded-lg text-xs font-semibold placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-[#0e6255]/20 focus:border-[#0e6255] transition font-nunito"
-                  id="password"
-                  name="password"
-                  type="password"
-                  autoComplete="current-password"
-                  placeholder="Enter your password"
-                  value={formData.password}
-                  onChange={handleChange}
-                  maxLength={255}
-                  aria-invalid={Boolean(fieldErrors.password)}
-                  required
-                />
+                <div className="relative">
+                  <input
+                    className="w-full pl-3.5 pr-10 py-2.5 text-slate-700 bg-white border border-slate-300 rounded-lg text-xs font-semibold placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-[#0e6255]/20 focus:border-[#0e6255] transition font-nunito"
+                    id="password"
+                    name="password"
+                    type={showPassword ? 'text' : 'password'}
+                    autoComplete="current-password"
+                    placeholder="Enter your password"
+                    value={formData.password}
+                    onChange={handleChange}
+                    maxLength={255}
+                    aria-invalid={Boolean(fieldErrors.password)}
+                    required
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword((shown) => !shown)}
+                    aria-label={showPassword ? 'Hide password' : 'Show password'}
+                    aria-pressed={showPassword}
+                    title={showPassword ? 'Hide password' : 'Show password'}
+                    className="absolute inset-y-0 right-0 px-3 flex items-center text-slate-400 hover:text-[#0e6255] transition cursor-pointer"
+                  >
+                    {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  </button>
+                </div>
                 <FieldError message={fieldErrors.password} />
               </div>
 
-              <div className="flex items-center justify-between text-xs pt-0.5 font-semibold font-nunito">
+              <div className="flex items-center text-xs pt-0.5 font-semibold font-nunito">
                 <label className="inline-flex items-center gap-2 cursor-pointer select-none">
                   <input
                     className="w-3.5 h-3.5 rounded text-[#0e6255] border-slate-300 focus:ring-[#0e6255]"
@@ -183,16 +195,6 @@ const Login = () => {
                   />
                   <span className="text-slate-600 font-nunito">Remember me</span>
                 </label>
-                <button
-                  type="button"
-                  className="font-bold text-[#115349] hover:text-[#0f4840] transition hover:underline font-nunito cursor-pointer"
-                  onClick={() => {
-                    setError('');
-                    setNotice(PASSWORD_RESET_NOTICE);
-                  }}
-                >
-                  Forgot Password?
-                </button>
               </div>
 
               <div className="pt-1">
