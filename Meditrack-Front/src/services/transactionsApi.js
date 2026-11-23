@@ -147,9 +147,11 @@ const requireQuantity = (value) => {
   return quantity;
 };
 
-const requireDate = (value) => {
+// `label` names the date in the future-date message, as the backend does ("Disposal date...").
+const requireDate = (value, label = 'Transaction') => {
   if (!value) throw invalid('Transaction date is required.', 422, 'date');
   if (!isValidDate(value)) throw invalid('Transaction date is not a valid date.', 422, 'date');
+  if (value > toISODate()) throw invalid(`${label} date cannot be in the future.`, 422, 'date');
   return value;
 };
 
@@ -157,6 +159,13 @@ const optionalExpiryDate = (value) => {
   if (!value) return null;
   if (!isValidDate(value)) throw invalid('Expiry date is not a valid date.', 422, 'expiryDate');
   return value;
+};
+
+// A batch that had already expired when it arrived cannot be received.
+const assertNotExpiredOnArrival = (expiryDate, date) => {
+  if (expiryDate && expiryDate < date) {
+    throw invalid('Expiry date cannot be before the transaction date: expired stock cannot be received.', 422, 'expiryDate');
+  }
 };
 
 const requireUnitCost = (value) => {
@@ -270,7 +279,7 @@ const assertBatchNumberFree = (db, itemId, manufacturer, batchNumber, exceptBatc
 const createMock = (db, type, payload, reason = OUTGOING_REASONS.ISSUE) => {
   const item = requireActiveItem(db, payload.itemId);
   const quantity = requireQuantity(payload.quantity);
-  const date = requireDate(payload.date);
+  const date = requireDate(payload.date, reason === OUTGOING_REASONS.EXPIRED_DISPOSAL ? 'Disposal' : 'Transaction');
 
   const base = {
     id: nextId(db.transactions),
@@ -292,6 +301,7 @@ const createMock = (db, type, payload, reason = OUTGOING_REASONS.ISSUE) => {
     const batchNumber = requireBatchNumber(payload.batchNumber);
     const unitCost = requireUnitCost(payload.unitCost);
     const expiryDate = optionalExpiryDate(payload.expiryDate);
+    assertNotExpiredOnArrival(expiryDate, date);
     const supplier = optionalName(payload.supplier, 'supplier', 'Supplier');
     const manufacturer = findManufacturer(db, payload.manufacturer);
     const manufacturingDate = optionalManufacturingDate(payload.manufacturingDate, date, expiryDate);
@@ -435,6 +445,10 @@ const updateMock = (db, id, payload) => {
     const batchNumber = requireBatchNumber(payload.batchNumber);
     const unitCost = requireUnitCost(payload.unitCost);
     const expiryDate = optionalExpiryDate(payload.expiryDate);
+    // Checked only when a date changes, or it used to be outgoing, as on the backend: an old
+    // receipt whose batch has expired since must still be correctable.
+    const oldExpiryDate = wasIncoming ? (db.batches.find((candidate) => candidate.id === transaction.batchId)?.expiryDate ?? null) : null;
+    if (!wasIncoming || transaction.date !== date || oldExpiryDate !== expiryDate) assertNotExpiredOnArrival(expiryDate, date);
     const supplier = optionalName(payload.supplier, 'supplier', 'Supplier');
     const manufacturer = findManufacturer(db, payload.manufacturer);
     const manufacturingDate = optionalManufacturingDate(payload.manufacturingDate, date, expiryDate);

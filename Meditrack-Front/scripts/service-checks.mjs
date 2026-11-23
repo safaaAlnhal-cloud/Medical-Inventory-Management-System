@@ -491,6 +491,27 @@ try {
     assert.equal((await findItem(2)).quantity, stockBefore);
   });
 
+  // Found by comparing the mock with the API in phase 6: the mock accepted both.
+  check('dates: no transaction in the future, and no batch received already expired (an old receipt can still be corrected)', async () => {
+    await signIn(STOREKEEPER);
+    const tomorrow = isoDateFromNow(1);
+    await rejection(transactions.createIncomingTransactionApi(incoming({ date: tomorrow })), 422, 'date');
+    await rejection(transactions.createOutgoingTransactionApi({ itemId: 2, batchId: 9, quantity: 1, date: tomorrow, recipient: 'Ward' }), 422, 'date');
+    const disposal = await rejection(transactions.createDisposalTransactionApi({ itemId: 2, batchId: 9, quantity: 1, date: tomorrow }), 422, 'date');
+    assert.match(disposal.message, /^Disposal date cannot be in the future/);
+
+    await rejection(transactions.createIncomingTransactionApi(incoming({ expiryDate: isoDateFromNow(-1) })), 422, 'expiryDate');
+    assert.ok(await transactions.createIncomingTransactionApi(incoming({ batchNumber: 'SAME-DAY', expiryDate: today })), 'a batch expiring on the day it arrives can be received');
+
+    // Received 30 days ago with 10 days to go; it has expired since. Changing only the quantity is allowed,
+    // moving the date past the expiry is not.
+    const old = await transactions.createIncomingTransactionApi(incoming({ batchNumber: 'OLD-1', date: isoDateFromNow(-30), expiryDate: isoDateFromNow(-20) }));
+    const edit = { type: 'incoming', itemId: 2, quantity: 12, date: old.date, batchNumber: 'OLD-1', unitCost: 5, expiryDate: old.expiryDate, supplier: 'Check Supplier', manufacturer: null, manufacturingDate: null };
+    assert.equal((await transactions.updateTransactionApi(old.id, edit)).quantity, 12);
+    await rejection(transactions.updateTransactionApi(old.id, { ...edit, date: isoDateFromNow(-10) }), 422, 'expiryDate');
+    await rejection(transactions.updateTransactionApi(old.id, { ...edit, date: tomorrow }), 422, 'date');
+  });
+
   check('incoming: supplier and manufacturer are optional; a manufacturer is found by any spelling or created once', async () => {
     await signIn(STOREKEEPER);
     const count = async () => (await manufacturers.getManufacturersApi()).length;
