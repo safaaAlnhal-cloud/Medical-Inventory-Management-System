@@ -1,3 +1,4 @@
+import { ACCESS } from '../constants/users';
 import { http } from './apiAxios';
 import { fieldError } from './apiError';
 import { commit, requireCurrentUser } from './mock/mockDb';
@@ -27,9 +28,11 @@ const cleanPhone = (phone) => {
 };
 
 // Payload: { name, email, phone }. 409 on "email" when another account already uses it.
+// Admin only (Settings page): a storekeeper does not change their own details (decision 12).
 export const updateProfileApi = async ({ name, email, phone }) => {
   const dto = await request({
     delay: 200,
+    access: ACCESS.ADMIN,
     api: () => http.put('/profile', { name, email, phone }),
     mock: (db) => {
       const user = requireCurrentUser();

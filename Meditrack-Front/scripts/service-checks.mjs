@@ -240,8 +240,13 @@ try {
     assert.equal((await auth.loginApi({ email: STOREKEEPER.email, password: 'brand-new-pass' })).user.id, 2);
   });
 
-  check('profile: a phone number longer than 30 characters is a 422', async () => {
+  check('profile: only the admin changes their own details; a phone number longer than 30 characters is a 422', async () => {
     await signIn(STOREKEEPER);
+    const mine = await profile.getProfileApi();
+    await rejection(profile.updateProfileApi({ name: 'Someone Else', email: mine.email, phone: '' }), 403);
+    assert.equal((await profile.getProfileApi()).name, mine.name);
+
+    await signIn(ADMIN);
     const me = await profile.getProfileApi();
     await rejection(profile.updateProfileApi({ name: me.name, email: me.email, phone: '1'.repeat(31) }), 422, 'phone');
     assert.equal((await profile.updateProfileApi({ name: me.name, email: me.email, phone: ' 0599 ' })).phone, '0599');
