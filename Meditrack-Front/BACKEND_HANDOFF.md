@@ -38,8 +38,7 @@ design is in section 9.
 barcodes and manufacturers, extra item details, manufacturing date and optional supplier on
 batches, archive reason and history, account expiry, alert priority, backend report export with an
 export log. Insurance support and changing one's own email are **deferred**. Everything else is
-**implemented**, in the backend and in the frontend (mock and API), except the required-field
-marks on the item and user forms (section 2).
+**implemented**, in the backend and in the frontend (mock and API).
 
 ### Service files
 
@@ -163,9 +162,9 @@ show each message under the input whose name matches the key; a failure without 
 | Barcode | `barcode`, `manufacturer` |
 | Archive item | `reason` |
 
-**Required marks:** every required input shows a red `*` after its label and each form has a
-short "* Required" note; every optional input says "(optional)". **Implemented** on the
-transaction forms; **planned** on the item and user forms. The required / optional
+**Required marks (implemented, decided in phase 6):** every required input shows a red `*` after
+its label, and every optional input says "(optional)", on every form (`RequiredMark` and
+`OptionalMark` in `src/components/common/FormField.jsx`). The required / optional
 split of each form is listed with its endpoint in section 4, and the frontend checks must match
 the backend rules there exactly.
 
@@ -481,8 +480,7 @@ display text only. The data model, service functions and endpoints keep the word
 - **An item can only be archived while its stock is 0.** `PATCH /inventory/:id/archive` returns
   `409` otherwise, with a message telling the user to issue or correct the remaining stock first.
   Archiving therefore can never make stock or stock value disappear from the inventory.
-  (Whether the backend should instead allow it and keep the stock is an open decision; refusing
-  is the non-destructive choice.)
+  (Decided, decision 1: refusing is the non-destructive choice, so it stays.)
 - **Active inventory** means items that are not archived. Archived items are left out of
   `GET /inventory`, its search, the item selectors for new transactions, the dashboard summary,
   critical inventory, alerts / notifications, and the rows and stock value of the Inventory
@@ -888,7 +886,7 @@ Validation (**backend must**; the mock applies the same rules):
 storekeepers (any other `role` is rejected with `422`), roles never change, and users are never
 deleted: an account that should no longer be used is set to `inactive`. Because the one admin
 cannot deactivate their own account, the system always keeps an active admin.
-`lastActiveAt` is updated at login (open decision 15).
+`lastActiveAt` is updated at every login, and only then (decision 15).
 
 #### Account expiry (decided, decision 23; implemented, alerts included: section 4.6)
 
@@ -1434,7 +1432,7 @@ They always act on the user identified by the token.
 | Method | Endpoint | Access | Notes |
 |---|---|---|---|
 | GET | `/profile` | Any signed-in user | Returns the `User` |
-| PUT | `/profile` | Any signed-in user | Request `{ "name", "email", "phone" }` → the `User`. `409` if the email is taken |
+| PUT | `/profile` | Admin | Request `{ "name", "email", "phone" }` → the `User`. `409` if the email is taken |
 | PUT | `/profile/password` | Any signed-in user | Request `{ "currentPassword", "newPassword" }`. `422` if `currentPassword` is wrong (field `currentPassword`) or `newPassword` is shorter than 6 characters (field `newPassword`). No response body needed |
 
 **Implemented** (backend and mock). `PUT /profile/password` returns `204`. `phone` is optional, at
@@ -1450,9 +1448,10 @@ sent with it is ignored. An empty `currentPassword` gets the same message as a w
   outcome is reported on its own ("Your profile was saved, but your password was not changed: ...").
   Nothing is reported as saved unless its request succeeded. The same applies to an admin editing
   a user and setting a new password on the Users page.
-- The storekeeper Profile page only shows the profile and changes the password. Whether a
-  storekeeper may change their own name, email or phone through `PUT /profile` is an **open
-  decision** (the endpoint allows it; the UI does not offer it).
+- The storekeeper Profile page only shows the profile and changes the password. **Decided
+  (decision 12):** a storekeeper does not change their own name, email or phone; the admin does it
+  on the Users page. `PUT /profile` is therefore admin only: a storekeeper gets `403` (backend
+  and mock).
 - **Deferred (decision 27):** changing one's own email from the Profile page, and confirming a new
   email by message, wait for the team's discussion. Nothing is built for them. The admin's Settings
   page keeps the profile form it already has.
@@ -1569,14 +1568,14 @@ be sent without the UI.
 - The session token is kept in web storage, and there is no token refresh.
 - The app is one JavaScript bundle (about 500 kB); routes are not split.
 
-**Decisions.** "Decided" rows are settled for the backend. "Open" rows were not discussed yet: the
-backend follows the behaviour shown until they are. "Deferred" rows were postponed on purpose and
+**Decisions.** "Decided" rows are settled for the backend; the last open ones (1, 12, 13, 15) were
+decided together in phase 6. "Deferred" rows were postponed on purpose and
 nothing is built for them. Rows 19–27 come from the supervisor's review; 19–25 are built, 26 and
 27 are deferred.
 
 | # | Question | Status | Answer / current behaviour |
 |---|---|---|---|
-| 1 | May an item with stock be archived, and what happens to the stock? | Open | Refused with `409` until the stock is 0 and no expired stock awaits disposal |
+| 1 | May an item with stock be archived, and what happens to the stock? | Decided | Refused with `409` until the stock is 0 and no expired stock awaits disposal |
 | 2 | Who may archive / restore items, and edit or cancel transactions recorded by someone else? | Decided | Any signed-in user (admin or storekeeper). Who recorded, edited and cancelled is kept |
 | 3 | Must quantities be whole numbers? | Decided | Yes, quantities and `minQty`, from 1 to 1,000,000 (`minQty` from 0), in the backend and the mock |
 | 4 | May a transaction be dated in the future? May an already expired batch be received? | Decided | No future dates. A batch whose `expiryDate` is before its receipt `date` is refused; `expiryDate` may be `null` |
@@ -1587,10 +1586,10 @@ nothing is built for them. Rows 19–27 come from the supervisor's review; 19–
 | 9 | Pagination for inventory, transactions, users, notifications; lookups versus embedded names | Decided | Not paginated for now (reports are); the three lookup endpoints stay |
 | 10 | Report export beyond 1000 rows | Decided | No limit: exports are built by the backend (decision 25). Only the mock mode's printed PDF is truncated, and labelled |
 | 11 | Can more admins be created, roles changed, users deleted? | Decided | One admin from the seeder; only storekeepers are created; no role changes; users are deactivated, never deleted |
-| 12 | May a storekeeper edit their own name / email / phone? | Open | Endpoint allows it; UI does not offer it. Changing one's own email is deferred (decision 27) |
-| 13 | Self-service password reset by email | Open | Not available; an admin sets a new password |
+| 12 | May a storekeeper edit their own name / email / phone? | Decided | No. The admin changes them on the Users page; `PUT /profile` is admin only (`403` for a storekeeper) |
+| 13 | Self-service password reset by email | Decided | No. An admin sets a new password on the Users page |
 | 14 | Are alerts stored or derived; meaning of `createdAt`; unread again when they return? | Decided | Stored: the current alert conditions, kept up to date by `NotificationService` (section 4.6), with their figures worked out when read; `createdAt` is when the condition was first seen; unread again when it returns |
-| 15 | When is `lastActiveAt` updated? | Open | At login only |
+| 15 | When is `lastActiveAt` updated? | Decided | At every login, and only then |
 | 16 | Is stock valued at the item's Average Cost or per batch? Should a disposal produce an accounting write-off? | Decided | One moving Average Cost per item, for available, expired and disposed stock. Expired stock awaiting disposal stays in the quantity the average is built on; a disposal does not change the average. No write-off entry |
 | 17 | Who may see the reports? | Decided | Both roles, all four reports, on the same Reports page (`/admin/reports`, `/storekeeper/reports`) |
 | 18 | Is the history of edits to a transaction kept? | Decided | Yes, every edit with who, when, old and new values ("Edit history", section 3). Manufacturer and manufacturing date changes are included |
