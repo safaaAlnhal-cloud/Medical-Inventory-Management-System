@@ -6,6 +6,7 @@ import FormField, { inputClassName } from '../../components/common/FormField';
 import InlineAlert from '../../components/common/InlineAlert';
 import Modal from '../../components/common/Modal';
 import PageHeader from '../../components/common/PageHeader';
+import PasswordInput from '../../components/common/PasswordInput';
 import { MIN_PASSWORD_LENGTH, ROLE_LABELS, ROLES, USER_STATUS, USER_STATUS_LABELS } from '../../constants/users';
 import { useAuth } from '../../context/AuthContext';
 import { useToast } from '../../context/ToastContext';
@@ -201,7 +202,7 @@ const UsersPage = () => {
               <input type="email" required maxLength={255} placeholder="e.g. ahmad@medcenter.ps" value={addForm.email} onChange={(e) => setAddForm({ ...addForm, email: e.target.value })} className={inputClassName} />
             </FormField>
             <FormField label={`Password (min. ${MIN_PASSWORD_LENGTH} characters)`} required error={fieldErrors.password}>
-              <input type="password" required minLength={MIN_PASSWORD_LENGTH} maxLength={255} autoComplete="new-password" placeholder="••••••••" value={addForm.password} onChange={(e) => setAddForm({ ...addForm, password: e.target.value })} className={inputClassName} />
+              <PasswordInput required minLength={MIN_PASSWORD_LENGTH} maxLength={255} autoComplete="new-password" placeholder="••••••••" value={addForm.password} onChange={(e) => setAddForm({ ...addForm, password: e.target.value })} className={inputClassName} />
             </FormField>
             <FormField label="Account Expires On (last working day)" optional error={fieldErrors.accountExpiresOn}>
               <input type="date" min={toISODate()} value={addForm.accountExpiresOn} onChange={(e) => setAddForm({ ...addForm, accountExpiresOn: e.target.value })} className={inputClassName} />
@@ -299,7 +300,7 @@ const UsersPage = () => {
                 their own password in Settings, where the current password is required. */}
             {!sameId(editingUser.id, currentUserId) && (
               <FormField label={`Set New Password (min. ${MIN_PASSWORD_LENGTH} characters)`} optional error={fieldErrors.newPassword}>
-                <input type="password" minLength={MIN_PASSWORD_LENGTH} maxLength={255} autoComplete="new-password" placeholder="Leave empty to keep the current password" value={editForm.newPassword} onChange={(e) => setEditForm({ ...editForm, newPassword: e.target.value })} className={inputClassName} />
+                <PasswordInput minLength={MIN_PASSWORD_LENGTH} maxLength={255} autoComplete="new-password" placeholder="Leave empty to keep the current password" value={editForm.newPassword} onChange={(e) => setEditForm({ ...editForm, newPassword: e.target.value })} className={inputClassName} />
               </FormField>
             )}
 

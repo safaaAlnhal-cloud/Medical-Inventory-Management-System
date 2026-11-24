@@ -1,9 +1,9 @@
 import React, { useEffect, useState } from 'react';
 import { Navigate, useLocation, useNavigate } from 'react-router-dom';
-import { Eye, EyeOff } from 'lucide-react';
 import { getHomePath } from '../../constants/users';
 import { useAuth } from '../../context/AuthContext';
 import { FieldError } from '../../components/common/FormField';
+import PasswordInput from '../../components/common/PasswordInput';
 import { getErrorMessage, getFieldErrors } from '../../services/apiError';
 import { loginApi } from '../../services/authApi';
 import { hasSessionExpired } from '../../services/authStorage';
@@ -22,8 +22,6 @@ const Login = () => {
   const [fieldErrors, setFieldErrors] = useState({});
   // Information that is not an error: why the user is back here.
   const [notice, setNotice] = useState(() => (hasSessionExpired() ? SESSION_ENDED_NOTICE : ''));
-  // The eye button beside the password: shows what was typed, as text, until pressed again.
-  const [showPassword, setShowPassword] = useState(false);
   // After too many attempts (429) the server refuses every sign-in for a while, even with the
   // right password. secondsLeft counts that wait down: the button is disabled until it reaches 0.
   const [secondsLeft, setSecondsLeft] = useState(0);
@@ -155,31 +153,18 @@ const Login = () => {
                 <label className="block text-xs font-bold text-slate-800 mb-1.5 font-nunito" htmlFor="password">
                   Password <span className="text-red-500">*</span>
                 </label>
-                <div className="relative">
-                  <input
-                    className="w-full pl-3.5 pr-10 py-2.5 text-slate-700 bg-white border border-slate-300 rounded-lg text-xs font-semibold placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-[#0e6255]/20 focus:border-[#0e6255] transition font-nunito"
-                    id="password"
-                    name="password"
-                    type={showPassword ? 'text' : 'password'}
-                    autoComplete="current-password"
-                    placeholder="Enter your password"
-                    value={formData.password}
-                    onChange={handleChange}
-                    maxLength={255}
-                    aria-invalid={Boolean(fieldErrors.password)}
-                    required
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setShowPassword((shown) => !shown)}
-                    aria-label={showPassword ? 'Hide password' : 'Show password'}
-                    aria-pressed={showPassword}
-                    title={showPassword ? 'Hide password' : 'Show password'}
-                    className="absolute inset-y-0 right-0 px-3 flex items-center text-slate-400 hover:text-[#0e6255] transition cursor-pointer"
-                  >
-                    {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                  </button>
-                </div>
+                <PasswordInput
+                  className="w-full pl-3.5 py-2.5 text-slate-700 bg-white border border-slate-300 rounded-lg text-xs font-semibold placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-[#0e6255]/20 focus:border-[#0e6255] transition font-nunito"
+                  id="password"
+                  name="password"
+                  autoComplete="current-password"
+                  placeholder="Enter your password"
+                  value={formData.password}
+                  onChange={handleChange}
+                  maxLength={255}
+                  aria-invalid={Boolean(fieldErrors.password)}
+                  required
+                />
                 <FieldError message={fieldErrors.password} />
               </div>
 
